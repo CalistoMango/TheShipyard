@@ -1,0 +1,207 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "~/lib/supabase";
+
+// Payout split from rules: 70% builder, 10% submitter, 20% platform
+const PAYOUT_SPLIT = {
+  builder: 0.7,
+  submitter: 0.1,
+  platform: 0.2,
+};
+
+// Platform FID (for platform share) - should be configured
+const PLATFORM_FID = Number(process.env.PLATFORM_FID) || 1;
+
+// POST /api/builds/[id]/resolve - Resolve voting and process payouts
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: buildId } = await params;
+
+  try {
+    const supabase = createServerClient();
+
+    // Get build with idea info
+    const { data: build, error: buildError } = await supabase
+      .from("builds")
+      .select(
+        `
+        id,
+        status,
+        vote_ends_at,
+        votes_approve,
+        votes_reject,
+        builder_fid,
+        idea_id,
+        ideas:idea_id (
+          pool,
+          submitter_fid
+        )
+      `
+      )
+      .eq("id", buildId)
+      .single();
+
+    if (buildError || !build) {
+      return NextResponse.json({ error: "Build not found" }, { status: 404 });
+    }
+
+    if (build.status !== "voting") {
+      return NextResponse.json(
+        { error: `Build is not in voting status. Current: ${build.status}` },
+        { status: 400 }
+      );
+    }
+
+    // Check if voting has ended
+    if (build.vote_ends_at) {
+      const endsAt = new Date(build.vote_ends_at).getTime();
+      if (Date.now() < endsAt) {
+        const hoursLeft = Math.ceil((endsAt - Date.now()) / (60 * 60 * 1000));
+        return NextResponse.json(
+          { error: `Voting still active. ${hoursLeft}h remaining.` },
+          { status: 400 }
+        );
+      }
+    }
+
+    const idea = (build.ideas as unknown as { pool: number; submitter_fid: number | null }[] | null)?.[0] ?? null;
+    const pool = idea ? Number(idea.pool) : 0;
+    const submitterFid = idea?.submitter_fid;
+
+    // Determine outcome: approve requires > 50%, tie = rejected
+    const totalVotes = build.votes_approve + build.votes_reject;
+    const approved =
+      totalVotes > 0 && build.votes_approve > build.votes_reject;
+
+    if (approved) {
+      // Build approved - process payouts
+      const builderAmount = pool * PAYOUT_SPLIT.builder;
+      const submitterAmount = pool * PAYOUT_SPLIT.submitter;
+      const platformAmount = pool * PAYOUT_SPLIT.platform;
+
+      // Create payout records
+      const payoutRecords = [];
+
+      // Builder payout
+      payoutRecords.push({
+        build_id: buildId,
+        recipient_fid: build.builder_fid,
+        amount: builderAmount,
+        payout_type: "builder",
+      });
+
+      // Submitter payout (if exists)
+      if (submitterFid) {
+        payoutRecords.push({
+          build_id: buildId,
+          recipient_fid: submitterFid,
+          amount: submitterAmount,
+          payout_type: "submitter",
+        });
+      }
+
+      // Platform payout
+      payoutRecords.push({
+        build_id: buildId,
+        recipient_fid: PLATFORM_FID,
+        amount: platformAmount,
+        payout_type: "platform",
+      });
+
+      // Insert payout records
+      const { error: payoutError } = await supabase
+        .from("payouts")
+        .insert(payoutRecords);
+
+      if (payoutError) {
+        console.error("Error creating payouts:", payoutError);
+        return NextResponse.json(
+          { error: "Failed to create payout records" },
+          { status: 500 }
+        );
+      }
+
+      // Credit builder balance
+      const { data: builderUser } = await supabase
+        .from("users")
+        .select("balance, streak")
+        .eq("fid", build.builder_fid)
+        .single();
+
+      await supabase
+        .from("users")
+        .update({
+          balance: (builderUser?.balance || 0) + builderAmount,
+          streak: (builderUser?.streak || 0) + 1,
+        })
+        .eq("fid", build.builder_fid);
+
+      // Credit submitter balance (if exists)
+      if (submitterFid) {
+        const { data: submitterUser } = await supabase
+          .from("users")
+          .select("balance")
+          .eq("fid", submitterFid)
+          .single();
+
+        await supabase
+          .from("users")
+          .update({
+            balance: (submitterUser?.balance || 0) + submitterAmount,
+          })
+          .eq("fid", submitterFid);
+      }
+
+      // Update build status
+      await supabase.from("builds").update({ status: "approved" }).eq("id", buildId);
+
+      // Update idea status to completed
+      await supabase
+        .from("ideas")
+        .update({ status: "completed", pool: 0 })
+        .eq("id", build.idea_id);
+
+      return NextResponse.json({
+        status: "approved",
+        build_id: buildId,
+        outcome: {
+          votes_approve: build.votes_approve,
+          votes_reject: build.votes_reject,
+          total_votes: totalVotes,
+        },
+        payouts: {
+          builder: { fid: build.builder_fid, amount: builderAmount },
+          submitter: submitterFid
+            ? { fid: submitterFid, amount: submitterAmount }
+            : null,
+          platform: { fid: PLATFORM_FID, amount: platformAmount },
+        },
+      });
+    } else {
+      // Build rejected
+      // Update build status (pool stays with idea for next builder)
+      await supabase.from("builds").update({ status: "rejected" }).eq("id", buildId);
+
+      // Reset builder streak on failed vote
+      await supabase.from("users").update({ streak: 0 }).eq("fid", build.builder_fid);
+
+      return NextResponse.json({
+        status: "rejected",
+        build_id: buildId,
+        outcome: {
+          votes_approve: build.votes_approve,
+          votes_reject: build.votes_reject,
+          total_votes: totalVotes,
+        },
+        message: "Build rejected. Pool remains for other builders.",
+      });
+    }
+  } catch (error) {
+    console.error("Resolve build error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}

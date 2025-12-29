@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import type { Idea, Category } from "~/lib/types";
-import { ideas, categories, totalPoolValue } from "~/lib/mockData";
+import { useIdeas } from "~/lib/hooks/useIdeas";
 
 interface BrowseTabProps {
   onSelectIdea: (idea: Idea) => void;
 }
 
 type SortOption = "trending" | "funded" | "upvoted" | "newest";
+
+const categories = ["all", "games", "tools", "social", "defi", "content", "other"] as const;
 
 const getCategoryColor = (cat: Category): string => {
   const colors: Record<Category, string> = {
@@ -36,11 +38,16 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
   const [activeFilter, setActiveFilter] = useState<string>("all");
   const [activeSort, setActiveSort] = useState<SortOption>("trending");
 
-  const filteredIdeas = activeFilter === "all"
-    ? ideas
-    : ideas.filter((i) => i.category === activeFilter);
+  // Fetch ideas from API
+  const { data, isLoading, error } = useIdeas({
+    category: activeFilter as Category | "all",
+    sort: activeSort,
+  });
 
-  // The NFT Portfolio Tracker is in "voting" status - show it in race mode
+  const ideas = data?.data || [];
+  const totalPoolValue = ideas.reduce((sum, idea) => sum + idea.pool, 0);
+
+  // Find idea in voting status for race mode banner
   const raceIdea = ideas.find((i) => i.status === "voting");
 
   return (
@@ -103,41 +110,63 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
         </button>
       </div>
 
+      {/* Loading State */}
+      {isLoading && (
+        <div className="text-center py-8 text-gray-400">
+          Loading ideas...
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <div className="text-center py-8 text-red-400">
+          Failed to load ideas. Please try again.
+        </div>
+      )}
+
       {/* Ideas List */}
-      <div className="space-y-3">
-        {filteredIdeas.map((idea) => (
-          <div
-            key={idea.id}
-            onClick={() => onSelectIdea(idea)}
-            className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 hover:border-gray-600 cursor-pointer transition-all"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-semibold text-white truncate">{idea.title}</h3>
-                  {getStatusBadge(idea.status)}
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>
-                    {idea.category}
-                  </span>
-                  <span className="text-gray-500">by {idea.submitter}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-4 text-sm">
-                <div className="text-center">
-                  <div className="text-emerald-400 font-bold">${idea.pool}</div>
-                  <div className="text-gray-500 text-xs">pool</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-white font-medium">{idea.upvotes}</div>
-                  <div className="text-gray-500 text-xs">upvotes</div>
-                </div>
-              </div>
+      {!isLoading && !error && (
+        <div className="space-y-3">
+          {ideas.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              No ideas found.
             </div>
-          </div>
-        ))}
-      </div>
+          ) : (
+            ideas.map((idea) => (
+              <div
+                key={idea.id}
+                onClick={() => onSelectIdea(idea)}
+                className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 hover:border-gray-600 cursor-pointer transition-all"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-semibold text-white truncate">{idea.title}</h3>
+                      {getStatusBadge(idea.status)}
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>
+                        {idea.category}
+                      </span>
+                      <span className="text-gray-500">by {idea.submitter}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm">
+                    <div className="text-center">
+                      <div className="text-emerald-400 font-bold">${idea.pool}</div>
+                      <div className="text-gray-500 text-xs">pool</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-white font-medium">{idea.upvotes}</div>
+                      <div className="text-gray-500 text-xs">upvotes</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Race Mode Banner */}
       {raceIdea && (

@@ -4,6 +4,7 @@ import path from "path";
 export default defineConfig({
   test: {
     globals: true,
+    testTimeout: 30000, // 30 seconds for integration tests
   },
   resolve: {
     alias: {
