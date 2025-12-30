@@ -29,7 +29,7 @@ export async function GET(
     // Fetch idea with submitter info
     const { data: ideaData, error: ideaError } = await supabase
       .from("ideas")
-      .select("*, users!submitter_fid(username, display_name)")
+      .select("*, users!submitter_fid(username, display_name, pfp_url)")
       .eq("id", ideaId)
       .single();
 
@@ -77,6 +77,7 @@ export async function GET(
       upvotes: row.upvote_count,
       submitter: row.users?.display_name || row.users?.username || "Anonymous",
       submitter_fid: row.submitter_fid,
+      submitter_pfp: row.users?.pfp_url || null,
       status: row.status,
       cast_hash: row.cast_hash,
       related_casts: row.related_casts || [],

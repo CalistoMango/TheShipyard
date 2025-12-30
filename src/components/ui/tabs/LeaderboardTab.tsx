@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ProfileLink } from "~/components/ui/ProfileLink";
 
 interface Builder {
   rank: number;
@@ -95,14 +96,9 @@ export function LeaderboardTab() {
                   <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full" />
                 )}
                 <div className="flex-1">
-                  <a
-                    href={`https://warpcast.com/~/profiles/${b.fid}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-white font-medium hover:text-blue-400 transition-colors"
-                  >
+                  <ProfileLink fid={b.fid} className="text-white font-medium">
                     {b.name}
-                  </a>
+                  </ProfileLink>
                   <div className="text-gray-500 text-xs">{b.claimed} bounties</div>
                 </div>
                 <div className="text-emerald-400 font-bold">${b.earned}</div>
@@ -132,14 +128,9 @@ export function LeaderboardTab() {
                   <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full" />
                 )}
                 <div className="flex-1">
-                  <a
-                    href={`https://warpcast.com/~/profiles/${u.fid}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-white font-medium hover:text-blue-400 transition-colors"
-                  >
+                  <ProfileLink fid={u.fid} className="text-white font-medium">
                     {u.name}
-                  </a>
+                  </ProfileLink>
                   <div className="text-gray-500 text-xs">{u.ideas} ideas built</div>
                 </div>
                 <div className="text-emerald-400 font-bold">${u.earnings}</div>

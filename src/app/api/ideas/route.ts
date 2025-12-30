@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     // Build query
     let query = supabase
       .from("ideas")
-      .select("*, users!submitter_fid(username, display_name)", { count: "exact" });
+      .select("*, users!submitter_fid(username, display_name, pfp_url)", { count: "exact" });
 
     // Filter by category
     if (params.category && params.category !== "all") {
@@ -47,15 +47,19 @@ export async function GET(request: NextRequest) {
     // Sort
     switch (params.sort) {
       case "funded":
-        query = query.order("pool", { ascending: false });
+        query = query.order("pool", { ascending: false }).order("created_at", { ascending: false });
         break;
       case "upvoted":
-        query = query.order("upvote_count", { ascending: false });
+        query = query.order("upvote_count", { ascending: false }).order("created_at", { ascending: false });
         break;
       case "trending":
-        // Trending = combination of recent + engagement
-        // For now, sort by upvotes with recency boost
-        query = query.order("upvote_count", { ascending: false });
+        // Trending: prioritize ideas with engagement, then by recency
+        // Ideas with upvotes or funding come first, sorted by combined score
+        // Then remaining ideas sorted by newest
+        query = query
+          .order("upvote_count", { ascending: false })
+          .order("pool", { ascending: false })
+          .order("created_at", { ascending: false });
         break;
       case "newest":
       default:
@@ -91,6 +95,7 @@ export async function GET(request: NextRequest) {
       upvotes: row.upvote_count,
       submitter: row.users?.display_name || row.users?.username || "Anonymous",
       submitter_fid: row.submitter_fid,
+      submitter_pfp: row.users?.pfp_url || null,
       status: row.status,
       cast_hash: row.cast_hash,
       related_casts: row.related_casts || [],

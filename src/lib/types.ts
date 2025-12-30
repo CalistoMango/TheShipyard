@@ -132,6 +132,7 @@ export interface Idea {
   upvotes: number;
   submitter: string; // username or display_name
   submitter_fid: number | null;
+  submitter_pfp: string | null; // profile picture URL
   status: IdeaStatus;
   cast_hash: string | null;
   related_casts: string[]; // cast hashes of duplicate suggestions

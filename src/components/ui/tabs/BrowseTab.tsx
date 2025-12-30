@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { Idea, Category } from "~/lib/types";
-import { useIdeas } from "~/lib/hooks/useIdeas";
+import { useInfiniteIdeas } from "~/lib/hooks/useIdeas";
+import { ProfileLink } from "~/components/ui/ProfileLink";
 
 interface BrowseTabProps {
   onSelectIdea: (idea: Idea) => void;
@@ -37,15 +38,49 @@ const getStatusBadge = (status: string) => {
 export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
   const [activeFilter, setActiveFilter] = useState<string>("all");
   const [activeSort, setActiveSort] = useState<SortOption>("trending");
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  // Fetch ideas from API
-  const { data, isLoading, error } = useIdeas({
+  // Fetch ideas with infinite scroll
+  const {
+    data,
+    isLoading,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteIdeas({
     category: activeFilter as Category | "all",
     sort: activeSort,
   });
 
-  const ideas = data?.data || [];
+  // Flatten all pages into single array
+  const ideas = data?.pages.flatMap((page) => page.data) || [];
+  const total = data?.pages[0]?.total || 0;
   const totalPoolValue = ideas.reduce((sum, idea) => sum + idea.pool, 0);
+
+  // Intersection Observer for infinite scroll
+  const handleObserver = useCallback(
+    (entries: IntersectionObserverEntry[]) => {
+      const [entry] = entries;
+      if (entry.isIntersecting && hasNextPage && !isFetchingNextPage) {
+        fetchNextPage();
+      }
+    },
+    [fetchNextPage, hasNextPage, isFetchingNextPage]
+  );
+
+  useEffect(() => {
+    const element = loadMoreRef.current;
+    if (!element) return;
+
+    const observer = new IntersectionObserver(handleObserver, {
+      threshold: 0.1,
+      rootMargin: "100px",
+    });
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [handleObserver]);
 
   // Find idea in voting status for race mode banner
   const raceIdea = ideas.find((i) => i.status === "voting");
@@ -66,20 +101,24 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-        {categories.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setActiveFilter(cat)}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-              activeFilter === cat
-                ? "bg-white text-gray-900"
-                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-            }`}
-          >
-            {cat.charAt(0).toUpperCase() + cat.slice(1)}
-          </button>
-        ))}
+      <div className="relative">
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide pr-8">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setActiveFilter(cat)}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all flex-shrink-0 ${
+                activeFilter === cat
+                  ? "bg-white text-gray-900"
+                  : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+              }`}
+            >
+              {cat.charAt(0).toUpperCase() + cat.slice(1)}
+            </button>
+          ))}
+        </div>
+        {/* Fade gradient to hint at scrollable content */}
+        <div className="absolute right-0 top-0 bottom-2 w-12 bg-gradient-to-l from-gray-900 to-transparent pointer-events-none" />
       </div>
 
       {/* Sort */}
@@ -132,52 +171,59 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
               No ideas found.
             </div>
           ) : (
-            ideas.map((idea) => (
-              <div
-                key={idea.id}
-                onClick={() => onSelectIdea(idea)}
-                className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 hover:border-gray-600 cursor-pointer transition-all"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold text-white truncate">{idea.title}</h3>
-                      {getStatusBadge(idea.status)}
+            <>
+              {ideas.map((idea) => (
+                <div
+                  key={idea.id}
+                  onClick={() => onSelectIdea(idea)}
+                  className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 hover:border-gray-600 cursor-pointer transition-all"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-semibold text-white truncate">{idea.title}</h3>
+                        {getStatusBadge(idea.status)}
+                      </div>
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>
+                          {idea.category}
+                        </span>
+                        <span className="text-gray-500">by{" "}
+                          {idea.submitter_fid ? (
+                            <ProfileLink fid={idea.submitter_fid}>
+                              {idea.submitter}
+                            </ProfileLink>
+                          ) : (
+                            idea.submitter
+                          )}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>
-                        {idea.category}
-                      </span>
-                      <span className="text-gray-500">by{" "}
-                        {idea.submitter_fid ? (
-                          <a
-                            href={`https://warpcast.com/~/profiles/${idea.submitter_fid}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="hover:text-blue-400 transition-colors"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {idea.submitter}
-                          </a>
-                        ) : (
-                          idea.submitter
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 text-sm">
-                    <div className="text-center">
-                      <div className="text-emerald-400 font-bold">${idea.pool}</div>
-                      <div className="text-gray-500 text-xs">pool</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-white font-medium">{idea.upvotes}</div>
-                      <div className="text-gray-500 text-xs">upvotes</div>
+                    <div className="flex items-center gap-4 text-sm">
+                      <div className="text-center">
+                        <div className="text-emerald-400 font-bold">${idea.pool}</div>
+                        <div className="text-gray-500 text-xs">pool</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-white font-medium">{idea.upvotes}</div>
+                        <div className="text-gray-500 text-xs">upvotes</div>
+                      </div>
                     </div>
                   </div>
                 </div>
+              ))}
+
+              {/* Load more trigger / status */}
+              <div ref={loadMoreRef} className="py-4 text-center text-sm text-gray-500">
+                {isFetchingNextPage ? (
+                  "Loading more..."
+                ) : hasNextPage ? (
+                  `Showing ${ideas.length} of ${total} ideas`
+                ) : (
+                  `All ${total} ideas loaded`
+                )}
               </div>
-            ))
+            </>
           )}
         </div>
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import type { Idea, Category, IdeaStatus } from "~/lib/types";
 
 type SortMode = "trending" | "funded" | "upvoted" | "newest";
@@ -53,6 +53,31 @@ export function useIdeas(params: UseIdeasParams = {}) {
   return useQuery({
     queryKey: ["ideas", params],
     queryFn: () => fetchIdeas(params),
+  });
+}
+
+// Infinite scroll version
+interface UseInfiniteIdeasParams {
+  category?: Category | "all";
+  status?: IdeaStatus;
+  sort?: SortMode;
+  pageSize?: number;
+}
+
+export function useInfiniteIdeas(params: UseInfiniteIdeasParams = {}) {
+  const pageSize = params.pageSize || 20;
+
+  return useInfiniteQuery({
+    queryKey: ["ideas-infinite", params],
+    queryFn: ({ pageParam = 1 }) => fetchIdeas({ ...params, page: pageParam, pageSize }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      const totalPages = Math.ceil(lastPage.total / lastPage.pageSize);
+      if (lastPage.page < totalPages) {
+        return lastPage.page + 1;
+      }
+      return undefined;
+    },
   });
 }
 

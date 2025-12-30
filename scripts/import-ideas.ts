@@ -61,6 +61,7 @@ async function clearDatabase() {
 
   // Clear in reverse dependency order
   const tables = [
+    "reports",
     "payouts",
     "votes",
     "builds",
@@ -73,10 +74,11 @@ async function clearDatabase() {
   ];
 
   for (const table of tables) {
+    // Use gte/gt with minimum values to delete ALL rows
     const { error } = await supabase
       .from(table)
       .delete()
-      .neq(table === "ideas" ? "id" : table === "users" ? "fid" : "id", table === "ideas" ? 0 : table === "users" ? 0 : "00000000-0000-0000-0000-000000000000");
+      .gte(table === "ideas" ? "id" : table === "users" ? "fid" : "id", table === "ideas" ? 0 : table === "users" ? 0 : "00000000-0000-0000-0000-000000000000");
 
     if (error) {
       console.error(`  ⚠️  Error clearing ${table}:`, error.message);
@@ -85,6 +87,20 @@ async function clearDatabase() {
     }
   }
   console.log("");
+}
+
+/**
+ * Extract cast hash from a Warpcast/Farcaster URL
+ * Formats:
+ *   https://warpcast.com/username/0xabcd1234
+ *   https://farcaster.xyz/username/0xabcd1234
+ */
+function extractCastHash(url: string): string | null {
+  if (!url) return null;
+
+  // Match hex hash at end of URL path
+  const match = url.match(/\/(0x[a-fA-F0-9]+)$/);
+  return match ? match[1].toLowerCase() : null;
 }
 
 async function resolveUsername(username: string): Promise<ResolvedUser | null> {
@@ -212,6 +228,15 @@ async function importIdeas(ideas: IdeaJson[], usernameMap: Map<string, ResolvedU
       continue;
     }
 
+    // Extract cast hashes from original_urls
+    const castHashes = idea.original_urls
+      .map(url => extractCastHash(url))
+      .filter((hash): hash is string => hash !== null);
+
+    // First hash is the primary cast_hash, rest go to related_casts
+    const primaryCastHash = castHashes[0] || null;
+    const relatedCasts = castHashes.slice(1);
+
     const { error } = await supabase.from("ideas").insert({
       title: idea.title,
       description: idea.description,
@@ -220,8 +245,8 @@ async function importIdeas(ideas: IdeaJson[], usernameMap: Map<string, ResolvedU
       submitter_fid: submitterFid,
       pool: 0,
       upvote_count: 0,
-      cast_hash: null,
-      related_casts: [],
+      cast_hash: primaryCastHash,
+      related_casts: relatedCasts,
     });
 
     if (error) {
@@ -229,7 +254,8 @@ async function importIdeas(ideas: IdeaJson[], usernameMap: Map<string, ResolvedU
       errors++;
     } else {
       const submitterInfo = submitterFid ? `by fid:${submitterFid}` : "(no submitter)";
-      console.log(`  ✓ ${idea.title.slice(0, 50)} ${submitterInfo}`);
+      const hashInfo = primaryCastHash ? ` [${primaryCastHash.slice(0, 10)}...]` : "";
+      console.log(`  ✓ ${idea.title.slice(0, 45)}${hashInfo} ${submitterInfo}`);
       created++;
     }
   }
