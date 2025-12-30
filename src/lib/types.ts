@@ -130,7 +130,8 @@ export interface Idea {
   category: Category;
   pool: number;
   upvotes: number;
-  submitter: string; // username or display_name
+  submitter: string; // display_name or username for display
+  submitter_username: string | null; // username for mentions
   submitter_fid: number | null;
   submitter_pfp: string | null; // profile picture URL
   status: IdeaStatus;

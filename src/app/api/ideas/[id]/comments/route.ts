@@ -15,17 +15,9 @@ interface NeynarCast {
   timestamp: string;
 }
 
-interface NeynarConversationResponse {
-  conversation: {
-    cast: {
-      direct_replies: NeynarCast[];
-    };
-  };
-}
-
 // GET /api/ideas/[id]/comments - Fetch Farcaster replies for an idea
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -66,9 +58,12 @@ export async function GET(
       });
     }
 
-    // Fetch replies from Neynar
+    // Construct full Warpcast URL from short hash for API lookup
+    const castUrl = `https://warpcast.com/~/conversations/${idea.cast_hash}`;
+
+    // Fetch replies from Neynar using URL-based lookup
     const response = await fetch(
-      `${NEYNAR_API_URL}/farcaster/cast/conversation?identifier=${idea.cast_hash}&type=hash&reply_depth=1&include_chronological_parent_casts=false`,
+      `${NEYNAR_API_URL}/farcaster/cast/conversation?identifier=${encodeURIComponent(castUrl)}&type=url&reply_depth=1&include_chronological_parent_casts=false`,
       {
         headers: {
           accept: "application/json",
@@ -87,14 +82,11 @@ export async function GET(
     }
 
     const neynarData = await response.json();
-    console.log("Neynar conversation response for cast", idea.cast_hash, ":", JSON.stringify(neynarData, null, 2));
 
     // Handle different response structures
     const replies = neynarData.conversation?.cast?.direct_replies ||
                     neynarData.direct_replies ||
                     [];
-
-    console.log("Found", replies.length, "replies");
 
     // Transform to Comment type
     const comments: Comment[] = replies.map((reply: NeynarCast) => ({

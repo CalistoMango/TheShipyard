@@ -76,6 +76,7 @@ export async function GET(
       pool: Number(row.pool),
       upvotes: row.upvote_count,
       submitter: row.users?.display_name || row.users?.username || "Anonymous",
+      submitter_username: row.users?.username || null,
       submitter_fid: row.submitter_fid,
       submitter_pfp: row.users?.pfp_url || null,
       status: row.status,
