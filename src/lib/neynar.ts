@@ -31,6 +31,29 @@ export async function getNeynarUser(fid: number): Promise<User | null> {
   }
 }
 
+/**
+ * Fetch user info from Neynar and return fields for database
+ */
+export async function fetchUserInfo(fid: number): Promise<{
+  username: string | null;
+  display_name: string | null;
+  pfp_url: string | null;
+} | null> {
+  try {
+    const user = await getNeynarUser(fid);
+    if (!user) return null;
+
+    return {
+      username: user.username || null,
+      display_name: user.display_name || user.username || null,
+      pfp_url: user.pfp_url || null,
+    };
+  } catch (error) {
+    console.error('Error fetching user info:', error);
+    return null;
+  }
+}
+
 type SendMiniAppNotificationResult =
   | {
       state: "error";

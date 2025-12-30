@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { getAdminFids } from "~/lib/admin";
 import { sendPushNotification } from "~/lib/notifications";
+import { fetchUserInfo } from "~/lib/neynar";
 
 interface ReportRequest {
   url: string;
@@ -69,20 +70,33 @@ export async function POST(
       );
     }
 
-    // Ensure reporter user exists
+    // Ensure reporter user exists with profile info
     const { data: existingUser } = await supabase
       .from("users")
-      .select("fid")
+      .select("fid, username")
       .eq("fid", body.reporter_fid)
       .single();
 
     if (!existingUser) {
-      // Create placeholder user
+      const userInfo = await fetchUserInfo(body.reporter_fid);
       await supabase.from("users").insert({
         fid: body.reporter_fid,
-        username: null,
-        display_name: null,
+        username: userInfo?.username || null,
+        display_name: userInfo?.display_name || null,
+        pfp_url: userInfo?.pfp_url || null,
       });
+    } else if (!existingUser.username) {
+      const userInfo = await fetchUserInfo(body.reporter_fid);
+      if (userInfo?.username) {
+        await supabase
+          .from("users")
+          .update({
+            username: userInfo.username,
+            display_name: userInfo.display_name,
+            pfp_url: userInfo.pfp_url,
+          })
+          .eq("fid", body.reporter_fid);
+      }
     }
 
     // Check for duplicate report from same user for same idea

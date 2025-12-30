@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useMiniApp } from "@neynar/react";
+import type { Idea } from "~/lib/types";
+
+interface DashboardTabProps {
+  onSelectIdea: (idea: Idea) => void;
+}
 
 interface UserStats {
   ideas_submitted: number;
@@ -21,6 +26,7 @@ interface RecentIdea {
 
 interface RecentBuild {
   id: string;
+  idea_id: number;
   idea_title: string;
   idea_pool: number;
   status: string;
@@ -56,11 +62,23 @@ function formatTimeAgo(dateStr: string): string {
   return `${months} months ago`;
 }
 
-export function DashboardTab() {
+export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
   const { context } = useMiniApp();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeSubTab, setActiveSubTab] = useState<DashboardSubTab>("ideas");
+
+  const handleIdeaClick = async (ideaId: number) => {
+    try {
+      const res = await fetch(`/api/ideas/${ideaId}`);
+      const data = await res.json();
+      if (data.data?.idea) {
+        onSelectIdea(data.data.idea);
+      }
+    } catch (error) {
+      console.error("Failed to fetch idea:", error);
+    }
+  };
 
   const userFid = context?.user?.fid;
 
@@ -182,13 +200,17 @@ export function DashboardTab() {
             <p className="text-gray-500 text-sm py-4">You haven&apos;t submitted any ideas yet.</p>
           ) : (
             recentIdeas.map((idea) => (
-              <div key={idea.id} className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium text-white">{idea.title}</h4>
+              <div
+                key={idea.id}
+                onClick={() => handleIdeaClick(idea.id)}
+                className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 hover:border-gray-600 cursor-pointer transition-all"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-white truncate">{idea.title}</h4>
                     <p className="text-gray-500 text-sm">{idea.status}</p>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right flex-shrink-0">
                     <div className="text-emerald-400 font-bold">${idea.pool}</div>
                     <div className="text-gray-500 text-xs">pool</div>
                   </div>
@@ -211,13 +233,17 @@ export function DashboardTab() {
             <p className="text-gray-500 text-sm py-4">You haven&apos;t funded any ideas yet.</p>
           ) : (
             recentFunding.map((f, i) => (
-              <div key={i} className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium text-white">{f.idea_title}</h4>
+              <div
+                key={i}
+                onClick={() => f.idea_id && handleIdeaClick(f.idea_id)}
+                className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 hover:border-gray-600 cursor-pointer transition-all"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-white truncate">{f.idea_title}</h4>
                     <p className="text-gray-500 text-sm">{formatTimeAgo(f.created_at)}</p>
                   </div>
-                  <div className="text-emerald-400 font-bold">${f.amount}</div>
+                  <div className="text-emerald-400 font-bold flex-shrink-0">${f.amount}</div>
                 </div>
               </div>
             ))
@@ -231,13 +257,17 @@ export function DashboardTab() {
             <p className="text-gray-500 text-sm py-4">You haven&apos;t submitted any builds yet.</p>
           ) : (
             recentBuilds.map((b) => (
-              <div key={b.id} className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium text-white">{b.idea_title}</h4>
+              <div
+                key={b.id}
+                onClick={() => handleIdeaClick(b.idea_id)}
+                className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 hover:border-gray-600 cursor-pointer transition-all"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-white truncate">{b.idea_title}</h4>
                     <p className="text-gray-500 text-sm">{formatTimeAgo(b.created_at)}</p>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right flex-shrink-0">
                     {b.status === "approved" ? (
                       <span className="text-green-400 text-sm">✓ Approved</span>
                     ) : b.status === "voting" ? (

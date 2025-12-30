@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { getAdminFids } from "~/lib/admin";
 import { sendPushNotification } from "~/lib/notifications";
+import { fetchUserInfo } from "~/lib/neynar";
 
 // 24 hour cooldown after rejection
 const REJECTION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -45,17 +46,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ensure builder user exists
+    // Ensure builder user exists with profile info
     const { data: existingUser } = await supabase
       .from("users")
-      .select("fid")
+      .select("fid, username")
       .eq("fid", body.builder_fid)
       .single();
 
     if (!existingUser) {
+      const userInfo = await fetchUserInfo(body.builder_fid);
       await supabase.from("users").insert({
         fid: body.builder_fid,
+        username: userInfo?.username || null,
+        display_name: userInfo?.display_name || null,
+        pfp_url: userInfo?.pfp_url || null,
       });
+    } else if (!existingUser.username) {
+      const userInfo = await fetchUserInfo(body.builder_fid);
+      if (userInfo?.username) {
+        await supabase
+          .from("users")
+          .update({
+            username: userInfo.username,
+            display_name: userInfo.display_name,
+            pfp_url: userInfo.pfp_url,
+          })
+          .eq("fid", body.builder_fid);
+      }
     }
 
     // Check for existing pending/voting builds from this builder for this idea

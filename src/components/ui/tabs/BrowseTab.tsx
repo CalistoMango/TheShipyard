@@ -89,37 +89,32 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="space-y-3">
         <div className="flex items-center gap-3">
           <img
             src="/logo-black.png"
             alt="The Shipyard"
-            className="w-10 h-10"
+            className="w-12 h-12 rounded-lg"
           />
-          <div>
-            <h1 className="text-2xl font-bold text-white">The Shipyard</h1>
-            <p className="text-gray-400 text-sm">Fund ideas. Race to build. Claim the pool.</p>
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center gap-2">
-            <div className="text-right">
-              <div className="text-emerald-400 font-bold text-lg leading-tight">
-                ${totalPoolValue.toLocaleString()}
-              </div>
-              <div className="text-gray-500 text-xs">total in pools</div>
-            </div>
-            <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
-              <span className="text-lg">💰</span>
-            </div>
+          <div className="flex-1">
+            <h1 className="text-xl font-bold text-white">The Shipyard</h1>
+            <p className="text-gray-400 text-xs">Fund ideas. Race to build. Claim the pool.</p>
           </div>
           <button
             onClick={() => setIsHelpOpen(true)}
-            className="text-gray-500 hover:text-gray-300 text-xs underline transition-colors"
+            className="text-gray-500 hover:text-gray-300 text-xs underline transition-colors whitespace-nowrap"
           >
             How it works
           </button>
         </div>
+        {totalPoolValue > 0 && (
+          <div className="flex items-center justify-center gap-2 py-2 px-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+            <span className="text-emerald-400 font-bold">
+              ${totalPoolValue.toLocaleString()}
+            </span>
+            <span className="text-gray-400 text-sm">total in pools</span>
+          </div>
+        )}
       </div>
 
       {/* Help Modal */}

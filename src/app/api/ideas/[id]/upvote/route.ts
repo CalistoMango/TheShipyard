@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
+import { fetchUserInfo } from "~/lib/neynar";
 
 interface UpvoteRequest {
   user_fid: number;
@@ -40,17 +41,35 @@ export async function POST(
       return NextResponse.json({ error: "Idea not found" }, { status: 404 });
     }
 
-    // Ensure user exists (create if not)
+    // Ensure user exists with profile info
     const { data: existingUser } = await supabase
       .from("users")
-      .select("fid")
+      .select("fid, username")
       .eq("fid", body.user_fid)
       .single();
 
     if (!existingUser) {
+      // Fetch user info from Neynar before creating
+      const userInfo = await fetchUserInfo(body.user_fid);
       await supabase.from("users").insert({
         fid: body.user_fid,
+        username: userInfo?.username || null,
+        display_name: userInfo?.display_name || null,
+        pfp_url: userInfo?.pfp_url || null,
       });
+    } else if (!existingUser.username) {
+      // Update user if username is missing
+      const userInfo = await fetchUserInfo(body.user_fid);
+      if (userInfo?.username) {
+        await supabase
+          .from("users")
+          .update({
+            username: userInfo.username,
+            display_name: userInfo.display_name,
+            pfp_url: userInfo.pfp_url,
+          })
+          .eq("fid", body.user_fid);
+      }
     }
 
     // Check if user already upvoted

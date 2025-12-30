@@ -41,6 +41,7 @@ export async function GET(
       .select(
         `
         id,
+        idea_id,
         status,
         created_at,
         ideas:idea_id (
@@ -113,6 +114,7 @@ export async function GET(
           const idea = (b.ideas as unknown as { title: string; pool: number }[] | null)?.[0] ?? null;
           return {
             id: b.id,
+            idea_id: b.idea_id,
             idea_title: idea?.title || "Unknown",
             idea_pool: idea ? Number(idea.pool) : 0,
             status: b.status,

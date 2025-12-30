@@ -99,19 +99,37 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Ensure user exists
+    // Ensure user exists and has up-to-date info
     const { data: existingUser } = await supabase
       .from("users")
-      .select("fid")
+      .select("fid, username, display_name")
       .eq("fid", body.author_fid)
       .single();
 
     if (!existingUser) {
-      await supabase.from("users").insert({
+      // Create new user
+      const { error: insertError } = await supabase.from("users").insert({
         fid: body.author_fid,
         username: body.author_username || null,
         display_name: body.author_display_name || body.author_username || null,
       });
+      if (insertError) {
+        console.error("[INGEST] Error creating user:", insertError);
+      }
+    } else if (body.author_username && (!existingUser.username || existingUser.username !== body.author_username)) {
+      // Update user if we have better info (username missing or changed)
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({
+          username: body.author_username,
+          display_name: body.author_display_name || body.author_username || existingUser.display_name,
+        })
+        .eq("fid", body.author_fid);
+      if (updateError) {
+        console.error("[INGEST] Error updating user:", updateError);
+      } else {
+        console.log("[INGEST] Updated user info for fid:", body.author_fid);
+      }
     }
 
     // Fetch existing ideas for duplicate detection

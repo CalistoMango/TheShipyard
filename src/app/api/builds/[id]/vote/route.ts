@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
+import { fetchUserInfo } from "~/lib/neynar";
 
 interface VoteRequest {
   voter_fid: number;
@@ -62,17 +63,33 @@ export async function POST(
       );
     }
 
-    // Ensure voter user exists
+    // Ensure voter user exists with profile info
     const { data: existingUser } = await supabase
       .from("users")
-      .select("fid")
+      .select("fid, username")
       .eq("fid", body.voter_fid)
       .single();
 
     if (!existingUser) {
+      const userInfo = await fetchUserInfo(body.voter_fid);
       await supabase.from("users").insert({
         fid: body.voter_fid,
+        username: userInfo?.username || null,
+        display_name: userInfo?.display_name || null,
+        pfp_url: userInfo?.pfp_url || null,
       });
+    } else if (!existingUser.username) {
+      const userInfo = await fetchUserInfo(body.voter_fid);
+      if (userInfo?.username) {
+        await supabase
+          .from("users")
+          .update({
+            username: userInfo.username,
+            display_name: userInfo.display_name,
+            pfp_url: userInfo.pfp_url,
+          })
+          .eq("fid", body.voter_fid);
+      }
     }
 
     // Check if user already voted

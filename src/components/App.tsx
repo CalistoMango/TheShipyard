@@ -29,6 +29,7 @@ export default function App() {
   } = useMiniApp();
 
   const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null);
+  const [deepLinkLoading, setDeepLinkLoading] = useState(false);
 
   useEffect(() => {
     if (isSDKLoaded) {
@@ -36,17 +37,39 @@ export default function App() {
     }
   }, [isSDKLoaded, setInitialTab]);
 
+  // Handle deep link to specific idea via ?idea=ID query param
+  useEffect(() => {
+    if (!isSDKLoaded) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const ideaId = params.get("idea");
+
+    if (ideaId && !selectedIdea) {
+      setDeepLinkLoading(true);
+      fetch(`/api/ideas/${ideaId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          // API returns { data: { idea, fundingHistory, ... } }
+          if (data.data?.idea) {
+            setSelectedIdea(data.data.idea);
+          }
+        })
+        .catch((err) => console.error("Failed to load idea:", err))
+        .finally(() => setDeepLinkLoading(false));
+    }
+  }, [isSDKLoaded, selectedIdea]);
+
   const handleTabChange = (tab: Tab) => {
     setSelectedIdea(null);
     setActiveTab(tab);
   };
 
-  if (!isSDKLoaded) {
+  if (!isSDKLoaded || deepLinkLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-950">
         <div className="text-center">
           <div className="spinner h-8 w-8 mx-auto mb-4"></div>
-          <p className="text-gray-400">Loading...</p>
+          <p className="text-gray-400">{deepLinkLoading ? "Loading idea..." : "Loading..."}</p>
         </div>
       </div>
     );
@@ -69,7 +92,7 @@ export default function App() {
           <>
             {currentTab === Tab.Browse && <BrowseTab onSelectIdea={setSelectedIdea} />}
             {currentTab === Tab.Leaderboard && <LeaderboardTab />}
-            {currentTab === Tab.Dashboard && <DashboardTab />}
+            {currentTab === Tab.Dashboard && <DashboardTab onSelectIdea={setSelectedIdea} />}
             {currentTab === Tab.Profile && <ProfileTab onOpenAdmin={() => handleTabChange(Tab.Admin)} />}
             {currentTab === Tab.Admin && <AdminTab />}
           </>
