@@ -10,11 +10,16 @@ interface CastLinkProps {
 }
 
 export function CastLink({ castHash, children, className = "" }: CastLinkProps) {
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // Open the cast conversation in Warpcast
-    sdk.actions.openUrl(`https://warpcast.com/~/conversations/${castHash}`);
+    // Open the cast in Warpcast using viewCast action
+    try {
+      await sdk.actions.viewCast({ hash: castHash });
+    } catch {
+      // Fallback to openUrl if viewCast is not available
+      sdk.actions.openUrl(`https://warpcast.com/~/conversations/${castHash}`);
+    }
   };
 
   return (

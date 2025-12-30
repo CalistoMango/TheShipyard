@@ -383,7 +383,8 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
           <button
             onClick={() => {
               const shareUrl = `${APP_URL}/?idea=${idea.id}`;
-              const shareText = `Check out "${idea.title}" on The Shipyard!\n\nFund this idea or build it to claim the bounty pool.`;
+              const submitterMention = idea.submitter_fid ? `@${idea.submitter}` : idea.submitter;
+              const shareText = `Check out "${idea.title}" by ${submitterMention} on The Shipyard!\n\nFund this idea or build it to claim the $${idea.pool} bounty pool.`;
               sdk.actions.composeCast({
                 text: shareText,
                 embeds: [shareUrl],
@@ -415,8 +416,9 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
 
         {/* Actions - only show for open ideas */}
         {idea.status === "open" && (
-          <>
-            <div className="flex gap-3 mt-4">
+          <div className="space-y-3 mt-4">
+            {/* Primary actions row */}
+            <div className="flex gap-3">
               <button
                 onClick={handleUpvote}
                 disabled={actionLoading === "upvote"}
@@ -434,21 +436,22 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
               >
                 💰 Fund
               </button>
-              <button
-                onClick={() => setShowBuildModal(true)}
-                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2"
-              >
-                🚀 Submit Build
-              </button>
             </div>
+            {/* Submit Build - full width */}
+            <button
+              onClick={() => setShowBuildModal(true)}
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2"
+            >
+              🚀 Submit Build
+            </button>
             {/* Already Built button */}
             <button
               onClick={() => setShowReportModal(true)}
-              className="w-full mt-3 bg-yellow-600/20 hover:bg-yellow-600/30 border border-yellow-600/40 text-yellow-300 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
+              className="w-full bg-yellow-600/20 hover:bg-yellow-600/30 border border-yellow-600/40 text-yellow-300 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
             >
               🚩 Already Built? Report Existing Solution
             </button>
-          </>
+          </div>
         )}
       </div>
 
@@ -621,7 +624,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-white">Discussion</h3>
             <CastLink castHash={idea.cast_hash} className="text-blue-400 text-sm">
-              View on Warpcast →
+              View original cast →
             </CastLink>
           </div>
 

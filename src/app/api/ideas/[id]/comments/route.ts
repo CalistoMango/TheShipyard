@@ -86,12 +86,19 @@ export async function GET(
       });
     }
 
-    const neynarData = (await response.json()) as NeynarConversationResponse;
-    const replies = neynarData.conversation?.cast?.direct_replies || [];
+    const neynarData = await response.json();
+    console.log("Neynar conversation response for cast", idea.cast_hash, ":", JSON.stringify(neynarData, null, 2));
+
+    // Handle different response structures
+    const replies = neynarData.conversation?.cast?.direct_replies ||
+                    neynarData.direct_replies ||
+                    [];
+
+    console.log("Found", replies.length, "replies");
 
     // Transform to Comment type
-    const comments: Comment[] = replies.map((reply) => ({
-      user: reply.author.display_name || reply.author.username,
+    const comments: Comment[] = replies.map((reply: NeynarCast) => ({
+      user: reply.author?.display_name || reply.author?.username || "Unknown",
       text: reply.text,
       time: formatTimeAgo(new Date(reply.timestamp)),
     }));

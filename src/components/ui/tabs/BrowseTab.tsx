@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { Idea, Category } from "~/lib/types";
 import { useInfiniteIdeas } from "~/lib/hooks/useIdeas";
-import { ProfileLink } from "~/components/ui/ProfileLink";
 
 interface BrowseTabProps {
   onSelectIdea: (idea: Idea) => void;
@@ -188,15 +187,7 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                         <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>
                           {idea.category}
                         </span>
-                        <span className="text-gray-500">by{" "}
-                          {idea.submitter_fid ? (
-                            <ProfileLink fid={idea.submitter_fid}>
-                              {idea.submitter}
-                            </ProfileLink>
-                          ) : (
-                            idea.submitter
-                          )}
-                        </span>
+                        <span className="text-gray-500">by {idea.submitter}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-4 text-sm">
