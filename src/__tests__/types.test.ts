@@ -65,6 +65,8 @@ describe("Types", () => {
         upvotes: 10,
         submitter: "testuser.eth",
         submitter_fid: 123,
+        submitter_username: "testuser",
+        submitter_pfp: null,
         status: "open",
         cast_hash: null,
         related_casts: [],

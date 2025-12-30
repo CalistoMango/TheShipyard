@@ -384,7 +384,8 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
             onClick={() => {
               const shareUrl = `${APP_URL}/?idea=${idea.id}`;
               const submitterMention = idea.submitter_username ? `@${idea.submitter_username}` : idea.submitter;
-              const shareText = `Check out "${idea.title}" by ${submitterMention} on The Shipyard!\n\nFund this idea or build it to claim the $${idea.pool} bounty pool.`;
+              const poolText = idea.pool > 0 ? ` to claim the $${idea.pool} bounty pool` : '';
+              const shareText = `Check out "${idea.title}" by ${submitterMention} on The Shipyard!\n\nFund this idea or build it${poolText}.`;
               sdk.actions.composeCast({
                 text: shareText,
                 embeds: [shareUrl],

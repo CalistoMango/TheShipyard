@@ -49,21 +49,33 @@ export async function GET(
       });
     }
 
+    const castUrl = `https://warpcast.com/~/conversations/${idea.cast_hash}`;
+
     // If no Neynar API key, return empty with cast URL
     if (!NEYNAR_API_KEY) {
       return NextResponse.json({
         data: [],
-        cast_url: `https://warpcast.com/~/conversations/${idea.cast_hash}`,
+        cast_url: castUrl,
         message: "Comments available on Farcaster",
       });
     }
 
-    // Construct full Warpcast URL from short hash for API lookup
-    const castUrl = `https://warpcast.com/~/conversations/${idea.cast_hash}`;
+    // Check if this is a full hash (40+ chars) or short hash (8-10 chars)
+    // Neynar API only works with full hashes
+    const isFullHash = idea.cast_hash.length > 20;
 
-    // Fetch replies from Neynar using URL-based lookup
+    if (!isFullHash) {
+      // Short hash from imported data - can't fetch comments via Neynar
+      return NextResponse.json({
+        data: [],
+        cast_url: castUrl,
+        message: "View discussion on Farcaster",
+      });
+    }
+
+    // Fetch replies from Neynar using full hash
     const response = await fetch(
-      `${NEYNAR_API_URL}/farcaster/cast/conversation?identifier=${encodeURIComponent(castUrl)}&type=url&reply_depth=1&include_chronological_parent_casts=false`,
+      `${NEYNAR_API_URL}/farcaster/cast/conversation?identifier=${idea.cast_hash}&type=hash&reply_depth=1&include_chronological_parent_casts=false`,
       {
         headers: {
           accept: "application/json",
