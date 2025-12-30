@@ -54,7 +54,7 @@ export const APP_TAGS: string[] = ['builders', 'crowdfunding', 'ideas', 'miniapp
  * URL for the app's icon image.
  * Used in app store listings and UI elements.
  */
-export const APP_ICON_URL: string = `${APP_URL}/icon.png`;
+export const APP_ICON_URL: string = `${APP_URL}/logo-white.png`;
 
 /**
  * URL for the app's Open Graph image.
@@ -72,15 +72,18 @@ export const APP_SPLASH_URL: string = `${APP_URL}/splash.png`;
  * Background color for the splash screen.
  * Used as fallback when splash image is loading.
  */
-export const APP_SPLASH_BACKGROUND_COLOR: string = '#f7f7f7';
+export const APP_SPLASH_BACKGROUND_COLOR: string = '#030712';
 
 /**
  * Account association for the mini app.
  * Used to associate the mini app with a Farcaster account.
  * If not provided, the mini app will be unsigned and have limited capabilities.
  */
-export const APP_ACCOUNT_ASSOCIATION: AccountAssociation | undefined =
-  undefined;
+export const APP_ACCOUNT_ASSOCIATION: AccountAssociation | undefined = {
+  header: "eyJmaWQiOjQ4NzQ2MCwidHlwZSI6ImF1dGgiLCJrZXkiOiIweDkzQUM2MTY2ODg0ZGU3ZDUxMTc5ODcyMWYyMTQwNWQxZTIxOTNCRTAifQ",
+  payload: "eyJkb21haW4iOiJodHRwczovL3RoZS1zaGlweWFyZC52ZXJjZWwuYXBwLyJ9",
+  signature: "tCkIPKfWDVQVfq7RBzNjnDeCMdjhnfOcvpXx0o7NawpehItWb4H7lNmfZMxgTNttKybTG+bSvNJa7GDEYIBu+xw=",
+};
 
 // --- UI Configuration ---
 /**
