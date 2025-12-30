@@ -151,14 +151,9 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                   Post your idea in the{" "}
                   <span
                     className="text-blue-400 cursor-pointer hover:underline"
-                    onClick={async () => {
+                    onClick={() => {
                       setIsHelpOpen(false);
-                      try {
-                        await sdk.actions.viewChannel({ channelId: "someone-build" });
-                      } catch {
-                        // Fallback to openUrl if viewChannel is not available
-                        sdk.actions.openUrl("https://warpcast.com/~/channel/someone-build");
-                      }
+                      sdk.actions.openUrl("https://warpcast.com/~/channel/someone-build");
                     }}
                   >
                     /someone-build
@@ -286,7 +281,7 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-white truncate">{idea.title}</h3>
-                        {getStatusBadge(idea.status)}
+                        {idea.status === "voting" && getStatusBadge(idea.status)}
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>
@@ -295,16 +290,24 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                         <span className="text-gray-500">by {idea.submitter}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4 text-sm">
-                      <div className="text-center">
-                        <div className="text-emerald-400 font-bold">${idea.pool}</div>
-                        <div className="text-gray-500 text-xs">pool</div>
+                    {idea.status === "completed" ? (
+                      <div className="flex items-center">
+                        <span className="px-3 py-1.5 bg-green-500/20 text-green-300 text-sm rounded-full font-medium">
+                          ✅ Built
+                        </span>
                       </div>
-                      <div className="text-center">
-                        <div className="text-white font-medium">{idea.upvotes}</div>
-                        <div className="text-gray-500 text-xs">upvotes</div>
+                    ) : (
+                      <div className="flex items-center gap-4 text-sm">
+                        <div className="text-center">
+                          <div className="text-emerald-400 font-bold">${idea.pool}</div>
+                          <div className="text-gray-500 text-xs">pool</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-white font-medium">{idea.upvotes}</div>
+                          <div className="text-gray-500 text-xs">upvotes</div>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               ))}

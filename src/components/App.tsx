@@ -7,6 +7,7 @@ import { BrowseTab } from "~/components/ui/tabs/BrowseTab";
 import { LeaderboardTab } from "~/components/ui/tabs/LeaderboardTab";
 import { DashboardTab } from "~/components/ui/tabs/DashboardTab";
 import { ProfileTab } from "~/components/ui/tabs/ProfileTab";
+import { AdminTab } from "~/components/ui/tabs/AdminTab";
 import { IdeaDetail } from "~/components/ui/IdeaDetail";
 import type { Idea } from "~/lib/types";
 
@@ -15,6 +16,7 @@ export enum Tab {
   Leaderboard = "leaderboard",
   Dashboard = "dashboard",
   Profile = "profile",
+  Admin = "admin",
 }
 
 export default function App() {
@@ -68,7 +70,8 @@ export default function App() {
             {currentTab === Tab.Browse && <BrowseTab onSelectIdea={setSelectedIdea} />}
             {currentTab === Tab.Leaderboard && <LeaderboardTab />}
             {currentTab === Tab.Dashboard && <DashboardTab />}
-            {currentTab === Tab.Profile && <ProfileTab />}
+            {currentTab === Tab.Profile && <ProfileTab onOpenAdmin={() => handleTabChange(Tab.Admin)} />}
+            {currentTab === Tab.Admin && <AdminTab />}
           </>
         )}
       </div>

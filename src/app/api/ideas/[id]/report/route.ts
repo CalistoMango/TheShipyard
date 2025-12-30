@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
+import { getAdminFids } from "~/lib/admin";
+import { sendPushNotification } from "~/lib/notifications";
 
 interface ReportRequest {
   url: string;
@@ -48,7 +50,7 @@ export async function POST(
     // Check if idea exists
     const { data: idea, error: ideaError } = await supabase
       .from("ideas")
-      .select("id, status")
+      .select("id, status, title")
       .eq("id", ideaId)
       .single();
 
@@ -117,6 +119,16 @@ export async function POST(
         { data: null, error: "Failed to create report" },
         { status: 500 }
       );
+    }
+
+    // Notify admins about new report
+    const adminFids = getAdminFids();
+    for (const adminFid of adminFids) {
+      sendPushNotification(
+        adminFid,
+        "New Solution Report 📋",
+        `Someone reported an existing solution for "${idea.title}". Review it now.`
+      ).catch((err) => console.error("Failed to notify admin:", err));
     }
 
     return NextResponse.json({

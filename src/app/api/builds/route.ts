@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
+import { getAdminFids } from "~/lib/admin";
+import { sendPushNotification } from "~/lib/notifications";
 
 // 24 hour cooldown after rejection
 const REJECTION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -122,6 +124,16 @@ export async function POST(request: NextRequest) {
         { error: "Failed to create build" },
         { status: 500 }
       );
+    }
+
+    // Notify admins about new build submission
+    const adminFids = getAdminFids();
+    for (const adminFid of adminFids) {
+      sendPushNotification(
+        adminFid,
+        "New Build Submitted 🔨",
+        `A build was submitted for "${idea.title}". Review it now.`
+      ).catch((err) => console.error("Failed to notify admin:", err));
     }
 
     return NextResponse.json({

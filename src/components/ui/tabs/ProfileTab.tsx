@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { useMiniApp } from "@neynar/react";
 
+interface ProfileTabProps {
+  onOpenAdmin?: () => void;
+}
+
 interface UserProfile {
   fid: number;
   username: string | null;
@@ -49,11 +53,12 @@ function formatTimeAgo(dateStr: string): string {
   return `${months} months ago`;
 }
 
-export function ProfileTab() {
+export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
   const { context } = useMiniApp();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [_error, setError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const userFid = context?.user?.fid;
 
@@ -68,15 +73,25 @@ export function ProfileTab() {
       setError(null);
 
       try {
-        const res = await fetch(`/api/users/${userFid}`);
-        if (res.ok) {
-          const data = await res.json();
+        // Fetch user data and admin status in parallel
+        const [userRes, adminRes] = await Promise.all([
+          fetch(`/api/users/${userFid}`),
+          fetch(`/api/admin/check?fid=${userFid}`),
+        ]);
+
+        if (userRes.ok) {
+          const data = await userRes.json();
           setUserData(data.data);
-        } else if (res.status === 404) {
+        } else if (userRes.status === 404) {
           // User doesn't exist in our DB yet - that's okay, show empty state
           setUserData(null);
         } else {
           setError("Failed to load profile");
+        }
+
+        if (adminRes.ok) {
+          const adminData = await adminRes.json();
+          setIsAdmin(adminData.is_admin);
         }
       } catch (err) {
         console.error("Failed to fetch user profile:", err);
@@ -225,6 +240,16 @@ export function ProfileTab() {
           </div>
         )}
       </div>
+
+      {/* Admin Link - only visible to admins */}
+      {isAdmin && onOpenAdmin && (
+        <button
+          onClick={onOpenAdmin}
+          className="w-full bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2"
+        >
+          <span>Admin Dashboard</span>
+        </button>
+      )}
     </div>
   );
 }
