@@ -41,6 +41,16 @@ export function Header({ neynarUser }: HeaderProps) {
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500" />
         )}
 
+        {/* Logo and Title */}
+        <div className="flex items-center gap-2">
+          <img
+            src="/logo-black.png"
+            alt="The Shipyard"
+            className="w-8 h-8"
+          />
+          <span className="text-white font-bold text-lg">The Shipyard</span>
+        </div>
+
         {/* Help Button */}
         <button
           onClick={() => setIsHelpOpen(true)}
