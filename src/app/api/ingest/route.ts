@@ -14,6 +14,12 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as IngestRequest;
 
+    console.log("[INGEST] Received cast:", {
+      hash: body.cast_hash,
+      text: body.cast_text?.substring(0, 100),
+      author_fid: body.author_fid,
+    });
+
     // Validate required fields
     if (!body.cast_hash || !body.cast_text || !body.author_fid) {
       return NextResponse.json(
@@ -74,17 +80,19 @@ export async function POST(request: NextRequest) {
       .from("ideas")
       .select("id, title, description")
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
 
     // Classify the cast using LLM
+    console.log("[INGEST] Calling LLM classification with", existingIdeas?.length || 0, "existing ideas");
     const classification = await classifyCast(
       body.cast_text,
       existingIdeas || []
     );
+    console.log("[INGEST] Classification result:", JSON.stringify(classification));
 
     if (classification.type === "rejected") {
       // Log rejection but don't create idea
-      console.log(`Rejected cast ${body.cast_hash}: ${classification.reason}`);
+      console.log(`[INGEST] Rejected cast ${body.cast_hash}: ${classification.reason}`);
       return NextResponse.json({
         status: "rejected",
         reason: classification.reason,
@@ -143,13 +151,14 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (createError) {
-        console.error("Error creating idea:", createError);
+        console.error("[INGEST] Error creating idea:", createError);
         return NextResponse.json(
           { error: "Failed to create idea" },
           { status: 500 }
         );
       }
 
+      console.log("[INGEST] Created new idea:", createdIdea.id, newIdea.title);
       return NextResponse.json({
         status: "created",
         idea_id: createdIdea.id,
