@@ -107,14 +107,12 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
             How it works
           </button>
         </div>
-        {totalPoolValue > 0 && (
-          <div className="flex items-center justify-center gap-2 py-2 px-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-            <span className="text-emerald-400 font-bold">
-              ${totalPoolValue.toLocaleString()}
-            </span>
-            <span className="text-gray-400 text-sm">total in pools</span>
-          </div>
-        )}
+        <div className="flex items-center justify-center gap-2 py-2 px-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+          <span className="text-emerald-400 font-bold">
+            ${totalPoolValue.toLocaleString()}
+          </span>
+          <span className="text-gray-400 text-sm">total in pools</span>
+        </div>
       </div>
 
       {/* Help Modal */}
@@ -142,18 +140,36 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
 
               <div>
                 <h3 className="font-semibold text-white mb-1">How to Submit an Idea</h3>
-                <p>
+                <p className="mb-2">
                   Post your idea in the{" "}
                   <span
                     className="text-blue-400 cursor-pointer hover:underline"
-                    onClick={() => {
+                    onClick={async () => {
                       setIsHelpOpen(false);
-                      sdk.actions.openUrl("https://warpcast.com/~/channel/someone-build");
+                      try {
+                        // viewChannel may exist at runtime in newer Warpcast versions
+                        // but isn't in the SDK types yet
+                        const actions = sdk.actions as typeof sdk.actions & {
+                          viewChannel?: (opts: { key: string }) => Promise<void>;
+                        };
+                        if (actions.viewChannel) {
+                          await actions.viewChannel({ key: "someone-build" });
+                        } else {
+                          sdk.actions.openUrl("https://warpcast.com/~/channel/someone-build");
+                        }
+                      } catch {
+                        // Fallback to openUrl if viewChannel fails
+                        sdk.actions.openUrl("https://warpcast.com/~/channel/someone-build");
+                      }
                     }}
                   >
                     /someone-build
                   </span>{" "}
-                  channel on Farcaster. It will automatically appear here!
+                  channel on Farcaster.
+                </p>
+                <p>
+                  Or reply to any cast with <span className="text-blue-400">@theshipyard</span> to
+                  submit it as an idea!
                 </p>
               </div>
 
@@ -161,9 +177,9 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                 <h3 className="font-semibold text-white mb-1">How Funding Works</h3>
                 <ul className="list-disc list-inside space-y-1">
                   <li>Anyone can fund ideas they want built</li>
-                  <li>70% of the pool goes to the builder</li>
-                  <li>10% goes to the idea submitter</li>
-                  <li>20% goes to the platform</li>
+                  <li>85% of the pool goes to the builder</li>
+                  <li>5% goes to the idea submitter</li>
+                  <li>10% goes to the platform</li>
                 </ul>
               </div>
 

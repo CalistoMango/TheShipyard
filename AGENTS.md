@@ -43,3 +43,10 @@ See `src/components/ui/CastLink.tsx` for the canonical implementation of cast li
 - `viewCast` opens casts within the Farcaster app
 - `openUrl` is used for channels, profiles, and other external URLs
 - Always use `openUrl` instead of `window.open()` or `<a href>` for Warpcast URLs
+
+## Funding Split
+
+When an idea is completed and the pool is distributed:
+- **85%** goes to the builder
+- **5%** goes to the idea submitter
+- **10%** goes to the platform

@@ -150,6 +150,11 @@ export async function POST(request: NextRequest) {
     if (classification.type === "rejected") {
       // Log rejection but don't create idea
       console.log(`[INGEST] Rejected cast ${body.cast_hash}: ${classification.reason}`);
+
+      // Reply to let the user know
+      const replyText = `Thanks for posting! This doesn't look like an app idea I can add to The Shipyard. ${classification.reason || ""}\n\nTry describing a specific app or tool you'd like someone to build!`;
+      await replyToCast(body.cast_hash, replyText);
+
       return NextResponse.json({
         status: "rejected",
         reason: classification.reason,

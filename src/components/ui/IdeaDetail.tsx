@@ -115,6 +115,11 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
 
   const userFid = context?.user?.fid;
 
+  // Scroll to top when opening idea detail
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   useEffect(() => {
     async function fetchIdeaDetail() {
       setLoading(true);
@@ -385,7 +390,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
               const shareUrl = `${APP_URL}/?idea=${idea.id}`;
               const submitterMention = idea.submitter_username ? `@${idea.submitter_username}` : idea.submitter;
               const poolText = idea.pool > 0 ? ` to claim the $${idea.pool} bounty pool` : '';
-              const shareText = `Check out "${idea.title}" by ${submitterMention} on The Shipyard!\n\nFund this idea or build it${poolText}.`;
+              const shareText = `Check out "${idea.title}" by ${submitterMention} on @theshipyard!\n\nFund this idea or build it${poolText}.`;
               sdk.actions.composeCast({
                 text: shareText,
                 embeds: [shareUrl],
@@ -462,7 +467,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
           <div className="bg-gray-800 rounded-xl p-6 max-w-md w-full">
             <h3 className="text-xl font-bold text-white mb-4">Fund this idea</h3>
             <p className="text-gray-400 text-sm mb-4">
-              Contribute USDC to the pool. 70% goes to the builder, 10% to the idea submitter.
+              Contribute USDC to the pool. 85% goes to the builder, 5% to the idea submitter.
             </p>
             <input
               type="number"

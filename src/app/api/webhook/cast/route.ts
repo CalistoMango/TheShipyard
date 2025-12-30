@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { getNeynarClient } from "~/lib/neynar";
 
 // Neynar webhook secret for signature verification
 const NEYNAR_WEBHOOK_SECRET = process.env.NEYNAR_WEBHOOK_SECRET;
+const APP_URL = process.env.NEXT_PUBLIC_URL || "https://the-shipyard.vercel.app";
+const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY;
+const NEYNAR_AGENT_SIGNER_UUID = process.env.NEYNAR_AGENT_SIGNER_UUID;
+
+// Detect @theshipyard mentions (case insensitive)
+const MENTION_PATTERN = /@theshipyard\b/i;
 
 interface NeynarCastWebhook {
   created_at: number;
@@ -59,6 +66,55 @@ function verifyNeynarSignature(
   );
 }
 
+async function replyToCast(parentHash: string, text: string): Promise<boolean> {
+  if (!NEYNAR_API_KEY || !NEYNAR_AGENT_SIGNER_UUID) {
+    console.log("[WEBHOOK] Missing Neynar credentials, skipping reply");
+    return false;
+  }
+
+  try {
+    const response = await fetch("https://api.neynar.com/v2/farcaster/cast", {
+      method: "POST",
+      headers: {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "x-api-key": NEYNAR_API_KEY,
+      },
+      body: JSON.stringify({
+        signer_uuid: NEYNAR_AGENT_SIGNER_UUID,
+        text,
+        parent: parentHash,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error("[WEBHOOK] Failed to reply to cast:", error);
+      return false;
+    }
+
+    console.log("[WEBHOOK] Successfully replied to cast");
+    return true;
+  } catch (error) {
+    console.error("[WEBHOOK] Error replying to cast:", error);
+    return false;
+  }
+}
+
+async function fetchParentCast(parentHash: string) {
+  try {
+    const client = getNeynarClient();
+    const response = await client.lookupCastByHashOrWarpcastUrl({
+      identifier: parentHash,
+      type: "hash",
+    });
+    return response.cast;
+  } catch (error) {
+    console.error("[WEBHOOK] Error fetching parent cast:", error);
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-neynar-signature");
@@ -91,27 +147,171 @@ export async function POST(request: NextRequest) {
   }
 
   const cast = webhookData.data;
-
-  // Verify this cast is from the /someone-build channel
   const targetChannel = process.env.FARCASTER_CHANNEL_ID || "someone-build";
-  if (cast.channel?.id !== targetChannel) {
+  const ingestUrl = new URL("/api/ingest", request.url);
+  const isFromTargetChannel = cast.channel?.id === targetChannel;
+
+  // Check if this cast mentions @theshipyard
+  const hasMention = MENTION_PATTERN.test(cast.text);
+  // Only treat as mention if NOT from the target channel (channel posts are processed normally)
+  const isReplyMention = hasMention && cast.parent_hash && !isFromTargetChannel;
+  const isDirectMention = hasMention && !cast.parent_hash && !isFromTargetChannel;
+
+  // Case 1: Reply mentioning @theshipyard (outside /someone-build) - import the parent cast as an idea
+  if (isReplyMention) {
+    console.log("[WEBHOOK] Detected @theshipyard mention in reply");
+
+    // Fetch the parent cast that's being tagged as an idea
+    const parentCast = await fetchParentCast(cast.parent_hash!);
+
+    if (!parentCast) {
+      // Reply to let them know we couldn't fetch the parent
+      await replyToCast(
+        cast.hash,
+        "Sorry, I couldn't fetch the cast you're tagging. Please try again or post the idea directly in /someone-build."
+      );
+      return NextResponse.json({
+        status: "error",
+        reason: "Failed to fetch parent cast",
+      });
+    }
+
+    // Don't import if the parent cast is already from the someone-build channel
+    // (it would already be processed by the channel webhook)
+    if (parentCast.channel?.id === targetChannel) {
+      return NextResponse.json({
+        status: "skipped",
+        reason: "Parent cast is already in /someone-build channel",
+      });
+    }
+
+    // Forward parent cast to ingest endpoint
+    try {
+      const ingestResponse = await fetch(ingestUrl.toString(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          cast_hash: parentCast.hash,
+          cast_text: parentCast.text,
+          author_fid: parentCast.author.fid,
+          author_username: parentCast.author.username,
+          author_display_name: parentCast.author.display_name,
+        }),
+      });
+
+      const result = await ingestResponse.json();
+
+      // Reply to the person who tagged us
+      if (result.status === "created") {
+        const ideaUrl = `${APP_URL}/?idea=${result.idea_id}`;
+        await replyToCast(
+          cast.hash,
+          `Great find! 🚢 This idea has been added to The Shipyard.\n\n"${result.title}"\n\nView and fund it: ${ideaUrl}`
+        );
+      } else if (result.status === "duplicate") {
+        const ideaUrl = `${APP_URL}/?idea=${result.idea_id}`;
+        await replyToCast(
+          cast.hash,
+          `This idea is already on The Shipyard! Check it out and upvote or fund it: ${ideaUrl}`
+        );
+      } else if (result.status === "skipped") {
+        const ideaUrl = `${APP_URL}/?idea=${result.idea_id}`;
+        await replyToCast(
+          cast.hash,
+          `This idea is already on The Shipyard! Check it out: ${ideaUrl}`
+        );
+      } else if (result.status === "rejected") {
+        await replyToCast(
+          cast.hash,
+          `Hmm, this doesn't look like an app idea I can add. ${result.reason || "Try tagging a cast that describes a mini app concept!"}`
+        );
+      }
+
+      return NextResponse.json({
+        status: "mention_processed",
+        cast_hash: parentCast.hash,
+        tagger: cast.author.username,
+        ingest_result: result,
+      });
+    } catch (error) {
+      console.error("[WEBHOOK] Error processing mention:", error);
+      return NextResponse.json(
+        { error: "Failed to process mention" },
+        { status: 500 }
+      );
+    }
+  }
+
+  // Case 2: Top-level cast mentioning @theshipyard - treat the cast itself as an idea
+  if (isDirectMention) {
+    console.log("[WEBHOOK] Detected @theshipyard mention in top-level cast");
+
+    // Forward this cast to ingest endpoint (the cast itself is the idea)
+    try {
+      const ingestResponse = await fetch(ingestUrl.toString(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          cast_hash: cast.hash,
+          cast_text: cast.text,
+          author_fid: cast.author.fid,
+          author_username: cast.author.username,
+          author_display_name: cast.author.display_name,
+        }),
+      });
+
+      const result = await ingestResponse.json();
+
+      // Reply to confirm (ingest already replies for created/rejected, but not for duplicates/skipped from mentions)
+      if (result.status === "duplicate") {
+        const ideaUrl = `${APP_URL}/?idea=${result.idea_id}`;
+        await replyToCast(
+          cast.hash,
+          `This idea is already on The Shipyard! Check it out and upvote or fund it: ${ideaUrl}`
+        );
+      } else if (result.status === "skipped") {
+        const ideaUrl = `${APP_URL}/?idea=${result.idea_id}`;
+        await replyToCast(
+          cast.hash,
+          `This idea is already on The Shipyard! Check it out: ${ideaUrl}`
+        );
+      }
+
+      return NextResponse.json({
+        status: "direct_mention_processed",
+        cast_hash: cast.hash,
+        ingest_result: result,
+      });
+    } catch (error) {
+      console.error("[WEBHOOK] Error processing direct mention:", error);
+      return NextResponse.json(
+        { error: "Failed to process direct mention" },
+        { status: 500 }
+      );
+    }
+  }
+
+  // Case 3: Top-level cast in /someone-build channel (original behavior)
+  if (!isFromTargetChannel) {
     return NextResponse.json({
       status: "skipped",
-      reason: `Cast not from ${targetChannel} channel`,
+      reason: `Cast not from ${targetChannel} channel and not a mention`,
     });
   }
 
-  // Skip replies - we only want top-level casts
+  // Skip replies in the channel - we only want top-level casts
   if (cast.parent_hash) {
     return NextResponse.json({
       status: "skipped",
-      reason: "Skipping reply cast",
+      reason: "Skipping reply cast in channel",
     });
   }
 
   // Forward to the ingest endpoint
-  const ingestUrl = new URL("/api/ingest", request.url);
-
   try {
     const ingestResponse = await fetch(ingestUrl.toString(), {
       method: "POST",
