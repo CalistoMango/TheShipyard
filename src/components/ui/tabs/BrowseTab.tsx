@@ -101,15 +101,23 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
             <p className="text-gray-400 text-sm">Fund ideas. Race to build. Claim the pool.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full text-sm font-medium">
-            ${totalPoolValue.toLocaleString()} in pools
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            <div className="text-right">
+              <div className="text-emerald-400 font-bold text-lg leading-tight">
+                ${totalPoolValue.toLocaleString()}
+              </div>
+              <div className="text-gray-500 text-xs">total in pools</div>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+              <span className="text-lg">💰</span>
+            </div>
           </div>
           <button
             onClick={() => setIsHelpOpen(true)}
-            className="w-8 h-8 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-400 hover:text-white hover:border-gray-600 transition-colors text-sm"
+            className="text-gray-500 hover:text-gray-300 text-xs underline transition-colors"
           >
-            ?
+            How it works
           </button>
         </div>
       </div>
@@ -143,9 +151,14 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                   Post your idea in the{" "}
                   <span
                     className="text-blue-400 cursor-pointer hover:underline"
-                    onClick={() => {
-                      sdk.actions.openUrl("https://warpcast.com/~/channel/someone-build");
+                    onClick={async () => {
                       setIsHelpOpen(false);
+                      try {
+                        await sdk.actions.viewChannel({ channelId: "someone-build" });
+                      } catch {
+                        // Fallback to openUrl if viewChannel is not available
+                        sdk.actions.openUrl("https://warpcast.com/~/channel/someone-build");
+                      }
                     }}
                   >
                     /someone-build

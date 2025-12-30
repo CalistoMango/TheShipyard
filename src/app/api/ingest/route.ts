@@ -2,12 +2,51 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { classifyCast } from "~/lib/llm";
 
+const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY;
+const NEYNAR_AGENT_SIGNER_UUID = process.env.NEYNAR_AGENT_SIGNER_UUID;
+const APP_URL = process.env.NEXT_PUBLIC_URL || "https://the-shipyard.vercel.app";
+
 interface IngestRequest {
   cast_hash: string;
   cast_text: string;
   author_fid: number;
   author_username?: string;
   author_display_name?: string;
+}
+
+async function replyToCast(parentHash: string, text: string): Promise<boolean> {
+  if (!NEYNAR_API_KEY || !NEYNAR_AGENT_SIGNER_UUID) {
+    console.log("[INGEST] Missing Neynar credentials, skipping reply");
+    return false;
+  }
+
+  try {
+    const response = await fetch("https://api.neynar.com/v2/farcaster/cast", {
+      method: "POST",
+      headers: {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "x-api-key": NEYNAR_API_KEY,
+      },
+      body: JSON.stringify({
+        signer_uuid: NEYNAR_AGENT_SIGNER_UUID,
+        text,
+        parent: parentHash,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error("[INGEST] Failed to reply to cast:", error);
+      return false;
+    }
+
+    console.log("[INGEST] Successfully replied to cast");
+    return true;
+  } catch (error) {
+    console.error("[INGEST] Error replying to cast:", error);
+    return false;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -116,6 +155,18 @@ export async function POST(request: NextRequest) {
           .update({ related_casts: relatedCasts })
           .eq("id", classification.existingIdeaId);
 
+        // Get the existing idea title for the reply
+        const { data: duplicateIdea } = await supabase
+          .from("ideas")
+          .select("title")
+          .eq("id", classification.existingIdeaId)
+          .single();
+
+        // Reply to the cast about the duplicate
+        const ideaUrl = `${APP_URL}/?idea=${classification.existingIdeaId}`;
+        const replyText = `Great minds think alike! 🧠 This idea is similar to "${duplicateIdea?.title || "an existing idea"}" which is already on The Shipyard.\n\nCheck it out and upvote or fund it: ${ideaUrl}`;
+        await replyToCast(body.cast_hash, replyText);
+
         return NextResponse.json({
           status: "duplicate",
           idea_id: classification.existingIdeaId,
@@ -159,6 +210,12 @@ export async function POST(request: NextRequest) {
       }
 
       console.log("[INGEST] Created new idea:", createdIdea.id, newIdea.title);
+
+      // Reply to the cast about the new idea
+      const ideaUrl = `${APP_URL}/?idea=${createdIdea.id}`;
+      const replyText = `Your idea has been added to The Shipyard! 🚢\n\n"${newIdea.title}" is now live and ready for funding.\n\nView and share it: ${ideaUrl}`;
+      await replyToCast(body.cast_hash, replyText);
+
       return NextResponse.json({
         status: "created",
         idea_id: createdIdea.id,
