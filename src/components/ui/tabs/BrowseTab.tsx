@@ -148,7 +148,21 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                       <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>
                         {idea.category}
                       </span>
-                      <span className="text-gray-500">by {idea.submitter}</span>
+                      <span className="text-gray-500">by{" "}
+                        {idea.submitter_fid ? (
+                          <a
+                            href={`https://warpcast.com/~/profiles/${idea.submitter_fid}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:text-blue-400 transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {idea.submitter}
+                          </a>
+                        ) : (
+                          idea.submitter
+                        )}
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-4 text-sm">
