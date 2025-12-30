@@ -12,6 +12,8 @@ export const ideas: Idea[] = [
     status: "open",
     description: "Daily word game like Wordle but with crypto/FC themed words. Leaderboards, streaks, share results as casts.",
     cast_hash: null,
+    related_casts: [],
+    solution_url: null,
     created_at: new Date().toISOString(),
   },
   {
@@ -25,6 +27,8 @@ export const ideas: Idea[] = [
     status: "open",
     description: "See engagement metrics for any FC channel - top casters, growth trends, peak activity times.",
     cast_hash: null,
+    related_casts: [],
+    solution_url: null,
     created_at: new Date().toISOString(),
   },
   {
@@ -38,6 +42,8 @@ export const ideas: Idea[] = [
     status: "voting",
     description: "Quick view of your NFT holdings across chains. Floor prices, rarity, recent sales.",
     cast_hash: null,
+    related_casts: [],
+    solution_url: null,
     created_at: new Date().toISOString(),
   },
   {
@@ -51,6 +57,8 @@ export const ideas: Idea[] = [
     status: "open",
     description: "Create playlists with friends on FC. Vote on tracks, share listening sessions.",
     cast_hash: null,
+    related_casts: [],
+    solution_url: null,
     created_at: new Date().toISOString(),
   },
   {
@@ -64,6 +72,8 @@ export const ideas: Idea[] = [
     status: "open",
     description: "Create memes directly in Farcaster. Templates, custom text, instant sharing.",
     cast_hash: null,
+    related_casts: [],
+    solution_url: null,
     created_at: new Date().toISOString(),
   },
   {
@@ -77,6 +87,8 @@ export const ideas: Idea[] = [
     status: "open",
     description: "Split DEGEN tips automatically between collaborators on a cast or project.",
     cast_hash: null,
+    related_casts: [],
+    solution_url: null,
     created_at: new Date().toISOString(),
   },
 ];

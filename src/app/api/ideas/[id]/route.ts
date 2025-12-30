@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-import type { DbIdea, DbUser, DbFunding, Idea, FundingEntry } from "~/lib/types";
+import type { DbIdea, DbUser, DbFunding, Idea, FundingEntry, WinningBuild } from "~/lib/types";
 
 interface IdeaDetailResponse {
   idea: Idea;
   fundingHistory: FundingEntry[];
   totalFunders: number;
+  winningBuild: WinningBuild | null;
 }
 
 export async function GET(
@@ -78,8 +79,33 @@ export async function GET(
       submitter_fid: row.submitter_fid,
       status: row.status,
       cast_hash: row.cast_hash,
+      related_casts: row.related_casts || [],
+      solution_url: row.solution_url,
       created_at: row.created_at,
     };
+
+    // Fetch winning build if idea is completed (via build/vote flow)
+    let winningBuild: WinningBuild | null = null;
+    if (row.status === "completed") {
+      const { data: buildData } = await supabase
+        .from("builds")
+        .select("id, url, builder_fid, users!builder_fid(username, display_name)")
+        .eq("idea_id", ideaId)
+        .eq("status", "approved")
+        .limit(1)
+        .single();
+
+      if (buildData) {
+        const build = buildData as unknown as { id: string; url: string; builder_fid: number; users: { username: string | null; display_name: string | null }[] | null };
+        const builderUser = build.users?.[0] ?? null;
+        winningBuild = {
+          id: build.id,
+          url: build.url,
+          builder: builderUser?.display_name || builderUser?.username || "Anonymous",
+          builder_fid: build.builder_fid,
+        };
+      }
+    }
 
     // Transform funding history
     const fundingHistory: FundingEntry[] = (fundingData || []).map(
@@ -95,6 +121,7 @@ export async function GET(
       idea,
       fundingHistory,
       totalFunders: funderCount || 0,
+      winningBuild,
     };
 
     return NextResponse.json({ data: response, error: null });

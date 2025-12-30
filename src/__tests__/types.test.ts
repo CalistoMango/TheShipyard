@@ -42,6 +42,7 @@ describe("Types", () => {
         submitter_fid: 123,
         pool: 100,
         upvote_count: 10,
+        solution_url: null,
         created_at: "2025-01-01T00:00:00Z",
         updated_at: "2025-01-01T00:00:00Z",
       };
@@ -66,6 +67,8 @@ describe("Types", () => {
         submitter_fid: 123,
         status: "open",
         cast_hash: null,
+        related_casts: [],
+        solution_url: null,
         created_at: "2025-01-01T00:00:00Z",
       };
 

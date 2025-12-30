@@ -93,6 +93,8 @@ export async function GET(request: NextRequest) {
       submitter_fid: row.submitter_fid,
       status: row.status,
       cast_hash: row.cast_hash,
+      related_casts: row.related_casts || [],
+      solution_url: row.solution_url,
       created_at: row.created_at,
     }));
 

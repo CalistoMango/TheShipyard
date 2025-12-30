@@ -24,7 +24,8 @@
     "deploy:raw": "vercel --prod",
     "cleanup": "node scripts/cleanup.js",
     "test:db": "tsx scripts/test-db.ts",
-    "seed": "tsx scripts/seed-db.ts"
+    "seed": "tsx scripts/seed-db.ts",
+    "import:ideas": "tsx scripts/import-ideas.ts"
   },
   "overrides": {
     "backslash": "0.2.0",

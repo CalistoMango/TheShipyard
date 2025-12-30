@@ -11,6 +11,13 @@ import { type AccountAssociation } from '@farcaster/miniapp-core/src/manifest';
  * Manual changes may be overwritten during project initialization.
  */
 
+// --- Admin Configuration ---
+/**
+ * Admin API key for protected endpoints.
+ * Used for admin-only operations like reviewing reports.
+ */
+export const ADMIN_API_KEY: string = process.env.ADMIN_API_KEY || "dev-admin-key";
+
 // --- App Configuration ---
 /**
  * The base URL of the application.

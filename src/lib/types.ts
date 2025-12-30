@@ -7,6 +7,7 @@ export type BuildStatus = "pending_review" | "voting" | "approved" | "rejected";
 export type Category = "games" | "tools" | "social" | "defi" | "content" | "other";
 export type WithdrawalStatus = "pending" | "completed" | "failed";
 export type PayoutType = "builder" | "submitter" | "platform";
+export type ReportStatus = "pending" | "approved" | "dismissed";
 
 // ===========================================
 // DATABASE ROW TYPES
@@ -55,6 +56,7 @@ export interface DbIdea {
   submitter_fid: number | null;
   pool: number;
   upvote_count: number;
+  solution_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -105,6 +107,17 @@ export interface DbPayout {
   created_at: string;
 }
 
+export interface DbReport {
+  id: string;
+  idea_id: number;
+  reporter_fid: number;
+  url: string;
+  note: string | null;
+  status: ReportStatus;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
 // ===========================================
 // API/FRONTEND TYPES (for display)
 // ===========================================
@@ -121,7 +134,17 @@ export interface Idea {
   submitter_fid: number | null;
   status: IdeaStatus;
   cast_hash: string | null;
+  related_casts: string[]; // cast hashes of duplicate suggestions
+  solution_url: string | null; // URL to existing solution (from approved report)
   created_at: string;
+}
+
+/** Winning build info for completed ideas */
+export interface WinningBuild {
+  id: string;
+  url: string;
+  builder: string;
+  builder_fid: number;
 }
 
 /** Funding entry for display */
