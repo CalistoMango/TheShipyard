@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useMiniApp } from "@neynar/react";
 import sdk from "@farcaster/miniapp-sdk";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
+import { parseUnits, formatUnits } from "viem";
 import type { Idea, Category, FundingEntry, WinningBuild, Comment } from "~/lib/types";
 import { ProfileLink } from "~/components/ui/ProfileLink";
 import { CastLink } from "~/components/ui/CastLink";
 import { APP_URL } from "~/lib/constants";
+import { USDC_ADDRESS, VAULT_ADDRESS, erc20Abi, vaultAbi, USDC_DECIMALS, ideaToProjectId } from "~/lib/contracts";
 
 interface IdeaDetailProps {
   idea: Idea;
@@ -112,8 +115,44 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
+  const [fundingStep, setFundingStep] = useState<"idle" | "approving" | "funding" | "confirming" | "done">("idle");
+  const [approveTxHash, setApproveTxHash] = useState<`0x${string}` | undefined>();
+  const [fundTxHash, setFundTxHash] = useState<`0x${string}` | undefined>();
 
   const userFid = context?.user?.fid;
+  const { address, isConnected } = useAccount();
+
+  // Wagmi hooks for on-chain funding
+  const { writeContractAsync } = useWriteContract();
+
+  // Wait for approve transaction
+  const { isSuccess: isApproveConfirmed } = useWaitForTransactionReceipt({
+    hash: approveTxHash,
+  });
+
+  // Wait for fund transaction
+  const { isSuccess: isFundConfirmed } = useWaitForTransactionReceipt({
+    hash: fundTxHash,
+  });
+
+  // Check user's USDC allowance for the vault contract
+  const { data: allowance } = useReadContract({
+    address: USDC_ADDRESS,
+    abi: erc20Abi,
+    functionName: "allowance",
+    args: address && VAULT_ADDRESS ? [address, VAULT_ADDRESS] : undefined,
+    query: { enabled: !!address && !!VAULT_ADDRESS },
+  });
+
+  // Check user's USDC balance
+  const { data: usdcBalance } = useReadContract({
+    address: USDC_ADDRESS,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address },
+  });
+
 
   // Scroll to top when opening idea detail
   useEffect(() => {
@@ -203,9 +242,42 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
     }
   };
 
-  const handleFund = async () => {
+  // Execute the fund transaction (called after approval or if already approved)
+  const executeFundTransaction = useCallback(async (amountWei: bigint) => {
+    if (!VAULT_ADDRESS || !userFid) return;
+
+    try {
+      setFundingStep("funding");
+      const fundTx = await writeContractAsync({
+        address: VAULT_ADDRESS,
+        abi: vaultAbi,
+        functionName: "fundProject",
+        args: [BigInt(userFid), ideaToProjectId(initialIdea.id), amountWei],
+      });
+      setFundTxHash(fundTx);
+      setFundingStep("confirming");
+    } catch (error) {
+      console.error("Fund transaction error:", error);
+      setActionError(error instanceof Error ? error.message : "Failed to fund");
+      setFundingStep("idle");
+      setActionLoading(null);
+    }
+  }, [initialIdea.id, writeContractAsync, userFid]);
+
+  // Handle on-chain funding with approve + fund steps
+  const handleFund = useCallback(async () => {
     if (!userFid) {
       setActionError("Please open this app in Farcaster to fund");
+      return;
+    }
+
+    if (!isConnected || !address) {
+      setActionError("Please connect your wallet to fund");
+      return;
+    }
+
+    if (!VAULT_ADDRESS) {
+      setActionError("Vault contract not configured");
       return;
     }
 
@@ -215,37 +287,146 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
       return;
     }
 
+    const amountWei = parseUnits(fundAmount, USDC_DECIMALS);
+
+    // Check USDC balance
+    if (usdcBalance && amountWei > usdcBalance) {
+      setActionError(`Insufficient USDC balance. You have ${formatUnits(usdcBalance, USDC_DECIMALS)} USDC`);
+      return;
+    }
+
     setActionLoading("fund");
     setActionError(null);
 
     try {
-      const res = await fetch(`/api/ideas/${initialIdea.id}/fund`, {
+      // Step 1: Check if we need to approve
+      const needsApproval = !allowance || allowance < amountWei;
+
+      if (needsApproval) {
+        setFundingStep("approving");
+        const approveTx = await writeContractAsync({
+          address: USDC_ADDRESS,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [VAULT_ADDRESS, amountWei],
+        });
+        setApproveTxHash(approveTx);
+
+        // Wait for approval to be confirmed (handled by useWaitForTransactionReceipt)
+        // We'll proceed to funding in the useEffect below
+      } else {
+        // Already approved, go straight to funding
+        await executeFundTransaction(amountWei);
+      }
+    } catch (error) {
+      console.error("Fund error:", error);
+      setActionError(error instanceof Error ? error.message : "Failed to fund");
+      setFundingStep("idle");
+      setActionLoading(null);
+    }
+  }, [userFid, isConnected, address, fundAmount, allowance, usdcBalance, writeContractAsync, executeFundTransaction]);
+
+  // Effect: After approval is confirmed, proceed to fund
+  useEffect(() => {
+    if (isApproveConfirmed && fundingStep === "approving" && fundAmount) {
+      const amountWei = parseUnits(fundAmount, USDC_DECIMALS);
+      executeFundTransaction(amountWei);
+    }
+  }, [isApproveConfirmed, fundingStep, fundAmount, executeFundTransaction]);
+
+  // Effect: After fund is confirmed, record in DB and cleanup
+  useEffect(() => {
+    if (isFundConfirmed && fundingStep === "confirming" && fundTxHash && userFid) {
+      const recordFunding = async () => {
+        try {
+          // Record the on-chain funding in the database
+          await fetch(`/api/ideas/${initialIdea.id}/fund`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_fid: userFid,
+              amount: parseFloat(fundAmount),
+              tx_hash: fundTxHash,
+            }),
+          });
+
+          // Refresh data
+          const refreshRes = await fetch(`/api/ideas/${initialIdea.id}`);
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json();
+            setDetailData(refreshData.data);
+          }
+
+          // Cleanup
+          setFundingStep("done");
+          setShowFundModal(false);
+          setFundAmount("");
+          setApproveTxHash(undefined);
+          setFundTxHash(undefined);
+        } catch (error) {
+          console.error("Error recording funding:", error);
+        } finally {
+          setActionLoading(null);
+          setFundingStep("idle");
+        }
+      };
+      recordFunding();
+    }
+  }, [isFundConfirmed, fundingStep, fundTxHash, userFid, fundAmount, initialIdea.id]);
+
+  // Handle withdraw (refund) - requires backend signature
+  const handleWithdraw = useCallback(async () => {
+    if (!isConnected || !address || !VAULT_ADDRESS || !userFid) {
+      setActionError("Please connect your wallet");
+      return;
+    }
+
+    setActionLoading("withdraw");
+    setActionError(null);
+
+    try {
+      // Step 1: Request signature from backend
+      const signatureRes = await fetch(`/api/ideas/${initialIdea.id}/refund-signature`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_fid: userFid, amount }),
+        body: JSON.stringify({
+          user_fid: userFid,
+          recipient: address,
+        }),
       });
 
-      const data = await res.json();
+      if (!signatureRes.ok) {
+        const data = await signatureRes.json();
+        throw new Error(data.error || "Failed to get refund signature");
+      }
 
-      if (res.ok) {
-        setShowFundModal(false);
-        setFundAmount("");
-        // Refresh data
+      const { cumulativeAmount, deadline, signature } = await signatureRes.json();
+
+      // Step 2: Call claimRefund on contract
+      const withdrawTx = await writeContractAsync({
+        address: VAULT_ADDRESS,
+        abi: vaultAbi,
+        functionName: "claimRefund",
+        args: [BigInt(userFid), address, BigInt(cumulativeAmount), BigInt(deadline), signature as `0x${string}`],
+      });
+
+      console.log("Withdraw tx:", withdrawTx);
+
+      // Refresh detail data after a delay
+      setTimeout(async () => {
         const refreshRes = await fetch(`/api/ideas/${initialIdea.id}`);
         if (refreshRes.ok) {
           const refreshData = await refreshRes.json();
           setDetailData(refreshData.data);
         }
-      } else {
-        setActionError(data.error || "Failed to fund");
-      }
+      }, 5000);
     } catch (error) {
-      console.error("Fund error:", error);
-      setActionError("Failed to fund");
+      console.error("Withdraw error:", error);
+      setActionError(error instanceof Error ? error.message : "Failed to withdraw");
     } finally {
       setActionLoading(null);
     }
-  };
+  }, [isConnected, address, userFid, initialIdea.id, writeContractAsync]);
 
   const handleSubmitBuild = async () => {
     if (!userFid) {
@@ -469,6 +650,22 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
             <p className="text-gray-400 text-sm mb-4">
               Contribute USDC to the pool. 85% goes to the builder, 5% to the idea submitter.
             </p>
+
+            {/* Wallet connection status */}
+            {!isConnected && (
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mb-4">
+                <p className="text-yellow-300 text-sm">Please connect your wallet to fund with USDC</p>
+              </div>
+            )}
+
+            {/* USDC Balance display */}
+            {isConnected && usdcBalance !== undefined && (
+              <div className="bg-gray-700/50 rounded-lg p-3 mb-4">
+                <p className="text-gray-400 text-xs">Your USDC Balance</p>
+                <p className="text-white font-medium">${formatUnits(usdcBalance, USDC_DECIMALS)}</p>
+              </div>
+            )}
+
             <input
               type="number"
               min="1"
@@ -476,25 +673,46 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
               placeholder="Amount (min $1)"
               value={fundAmount}
               onChange={(e) => setFundAmount(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white mb-4"
+              disabled={fundingStep !== "idle"}
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white mb-4 disabled:opacity-50"
             />
+
+            {/* Transaction progress */}
+            {fundingStep !== "idle" && (
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full" />
+                  <p className="text-blue-300 text-sm">
+                    {fundingStep === "approving" && "Approving USDC..."}
+                    {fundingStep === "funding" && "Sending funds to escrow..."}
+                    {fundingStep === "confirming" && "Confirming transaction..."}
+                    {fundingStep === "done" && "Funding complete!"}
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button
                 onClick={() => {
                   setShowFundModal(false);
                   setFundAmount("");
                   setActionError(null);
+                  setFundingStep("idle");
+                  setApproveTxHash(undefined);
+                  setFundTxHash(undefined);
                 }}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg font-medium"
+                disabled={fundingStep !== "idle" && fundingStep !== "done"}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg font-medium disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleFund}
-                disabled={actionLoading === "fund"}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-lg font-medium"
+                disabled={actionLoading === "fund" || !isConnected || fundingStep !== "idle"}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-lg font-medium disabled:opacity-50"
               >
-                {actionLoading === "fund" ? "Processing..." : "Fund"}
+                {actionLoading === "fund" ? "Processing..." : "Fund with USDC"}
               </button>
             </div>
           </div>
@@ -598,6 +816,43 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
       {idea.status === "completed" && (
         <CompletedSection winningBuild={winningBuild} solutionUrl={idea.solution_url} />
       )}
+
+      {/* User's Contribution (from database) */}
+      {(() => {
+        const userContribution = fundingHistory
+          .filter(f => f.user_fid === userFid)
+          .reduce((sum, f) => sum + f.amount, 0);
+
+        if (!userFid || userContribution <= 0) return null;
+
+        return (
+          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-emerald-300 mb-1">Your Contribution</h3>
+                <p className="text-2xl font-bold text-white">
+                  ${userContribution.toFixed(2)} USDC
+                </p>
+              </div>
+              {/* Show withdraw button if refund is available (controlled by backend/database) */}
+              {idea.status === "open" && detailData?.idea?.refund_available && (
+                <button
+                  onClick={handleWithdraw}
+                  disabled={actionLoading === "withdraw" || !isConnected}
+                  className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded-lg font-medium text-sm disabled:opacity-50"
+                >
+                  {actionLoading === "withdraw" ? "Withdrawing..." : "Withdraw"}
+                </button>
+              )}
+            </div>
+            {idea.status === "open" && detailData?.idea?.refund_available && (
+              <p className="text-yellow-300 text-xs mt-2">
+                Refund available - no activity for 30+ days
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Funding History */}
       <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
