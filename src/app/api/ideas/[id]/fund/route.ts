@@ -5,6 +5,7 @@ import { fetchUserInfo } from "~/lib/neynar";
 interface FundRequest {
   user_fid: number;
   amount: number;
+  tx_hash?: string; // On-chain transaction hash
 }
 
 // Minimum funding amount from rules
@@ -65,7 +66,7 @@ export async function POST(
     // Ensure user exists with profile info
     const { data: existingUser } = await supabase
       .from("users")
-      .select("fid, balance, username")
+      .select("fid, username")
       .eq("fid", body.user_fid)
       .single();
 
@@ -93,32 +94,8 @@ export async function POST(
       }
     }
 
-    // Check user has sufficient balance
-    const userBalance = existingUser?.balance || 0;
-    if (userBalance < body.amount) {
-      return NextResponse.json(
-        {
-          error: "Insufficient balance",
-          balance: userBalance,
-          required: body.amount,
-        },
-        { status: 400 }
-      );
-    }
-
-    // Deduct from user balance
-    const { error: balanceError } = await supabase
-      .from("users")
-      .update({ balance: userBalance - body.amount })
-      .eq("fid", body.user_fid);
-
-    if (balanceError) {
-      console.error("Error updating balance:", balanceError);
-      return NextResponse.json(
-        { error: "Failed to update balance" },
-        { status: 500 }
-      );
-    }
+    // On-chain funding: tx_hash is provided, no balance check needed
+    // The funds were already transferred on-chain via the vault contract
 
     // Create funding record (immutable audit log)
     const { data: fundingRecord, error: fundingError } = await supabase
@@ -132,12 +109,6 @@ export async function POST(
       .single();
 
     if (fundingError) {
-      // Rollback balance change
-      await supabase
-        .from("users")
-        .update({ balance: userBalance })
-        .eq("fid", body.user_fid);
-
       console.error("Error creating funding record:", fundingError);
       return NextResponse.json(
         { error: "Failed to create funding record" },
@@ -175,7 +146,6 @@ export async function POST(
       funding_id: fundingRecord.id,
       amount: body.amount,
       new_pool_total: newPoolTotal,
-      new_balance: userBalance - body.amount,
       race_mode_triggered: triggersRaceMode,
     });
   } catch (error) {

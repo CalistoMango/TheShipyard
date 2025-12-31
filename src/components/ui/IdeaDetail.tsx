@@ -348,11 +348,13 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
 
   // Effect: After fund is confirmed, record in DB and cleanup
   useEffect(() => {
+    console.log("Fund confirmation effect:", { isFundConfirmed, fundingStep, fundTxHash, userFid });
     if (isFundConfirmed && fundingStep === "confirming" && fundTxHash && userFid) {
       const recordFunding = async () => {
         try {
+          console.log("Recording funding in DB...", { ideaId: initialIdea.id, amount: fundAmount, txHash: fundTxHash });
           // Record the on-chain funding in the database
-          await fetch(`/api/ideas/${initialIdea.id}/fund`, {
+          const fundRes = await fetch(`/api/ideas/${initialIdea.id}/fund`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -361,6 +363,13 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
               tx_hash: fundTxHash,
             }),
           });
+
+          if (!fundRes.ok) {
+            const errData = await fundRes.json();
+            console.error("Failed to record funding:", errData);
+          } else {
+            console.log("Funding recorded successfully");
+          }
 
           // Refresh data
           const refreshRes = await fetch(`/api/ideas/${initialIdea.id}`);
