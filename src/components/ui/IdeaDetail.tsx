@@ -3,13 +3,13 @@
 import { useEffect, useState, useCallback } from "react";
 import { useMiniApp } from "@neynar/react";
 import sdk from "@farcaster/miniapp-sdk";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, useSwitchChain } from "wagmi";
 import { parseUnits, formatUnits } from "viem";
 import type { Idea, Category, FundingEntry, WinningBuild, Comment } from "~/lib/types";
 import { ProfileLink } from "~/components/ui/ProfileLink";
 import { CastLink } from "~/components/ui/CastLink";
 import { APP_URL } from "~/lib/constants";
-import { USDC_ADDRESS, VAULT_ADDRESS, erc20Abi, vaultAbi, USDC_DECIMALS, ideaToProjectId } from "~/lib/contracts";
+import { USDC_ADDRESS, VAULT_ADDRESS, erc20Abi, vaultAbi, USDC_DECIMALS, ideaToProjectId, CHAIN_ID } from "~/lib/contracts";
 
 interface IdeaDetailProps {
   idea: Idea;
@@ -120,7 +120,8 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
   const [fundTxHash, setFundTxHash] = useState<`0x${string}` | undefined>();
 
   const userFid = context?.user?.fid;
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chainId: walletChainId } = useAccount();
+  const { switchChain } = useSwitchChain();
 
   // Wagmi hooks for on-chain funding
   const { writeContractAsync } = useWriteContract();
@@ -128,11 +129,13 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
   // Wait for approve transaction
   const { isSuccess: isApproveConfirmed } = useWaitForTransactionReceipt({
     hash: approveTxHash,
+    chainId: CHAIN_ID,
   });
 
   // Wait for fund transaction
   const { isSuccess: isFundConfirmed } = useWaitForTransactionReceipt({
     hash: fundTxHash,
+    chainId: CHAIN_ID,
   });
 
   // Check user's USDC allowance for the vault contract
@@ -141,6 +144,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
     abi: erc20Abi,
     functionName: "allowance",
     args: address && VAULT_ADDRESS ? [address, VAULT_ADDRESS] : undefined,
+    chainId: CHAIN_ID,
     query: { enabled: !!address && !!VAULT_ADDRESS },
   });
 
@@ -150,6 +154,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
     abi: erc20Abi,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
+    chainId: CHAIN_ID,
     query: { enabled: !!address },
   });
 
@@ -253,6 +258,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         abi: vaultAbi,
         functionName: "fundProject",
         args: [BigInt(userFid), ideaToProjectId(initialIdea.id), amountWei],
+        chainId: CHAIN_ID,
       });
       setFundTxHash(fundTx);
       setFundingStep("confirming");
@@ -299,6 +305,11 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
     setActionError(null);
 
     try {
+      // Step 0: Switch network if needed
+      if (walletChainId !== CHAIN_ID) {
+        await switchChain({ chainId: CHAIN_ID });
+      }
+
       // Step 1: Check if we need to approve
       const needsApproval = !allowance || allowance < amountWei;
 
@@ -309,6 +320,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
           abi: erc20Abi,
           functionName: "approve",
           args: [VAULT_ADDRESS, amountWei],
+          chainId: CHAIN_ID,
         });
         setApproveTxHash(approveTx);
 
@@ -324,7 +336,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
       setFundingStep("idle");
       setActionLoading(null);
     }
-  }, [userFid, isConnected, address, fundAmount, allowance, usdcBalance, writeContractAsync, executeFundTransaction]);
+  }, [userFid, isConnected, address, fundAmount, allowance, usdcBalance, writeContractAsync, executeFundTransaction, walletChainId, switchChain]);
 
   // Effect: After approval is confirmed, proceed to fund
   useEffect(() => {
@@ -408,6 +420,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         abi: vaultAbi,
         functionName: "claimRefund",
         args: [BigInt(userFid), address, BigInt(cumulativeAmount), BigInt(deadline), signature as `0x${string}`],
+        chainId: CHAIN_ID,
       });
 
       console.log("Withdraw tx:", withdrawTx);

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useMiniApp } from "@neynar/react";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { VAULT_ADDRESS, vaultAbi } from "~/lib/contracts";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi";
+import { VAULT_ADDRESS, vaultAbi, CHAIN_ID } from "~/lib/contracts";
 
 interface ProfileTabProps {
   onOpenAdmin?: () => void;
@@ -71,7 +71,8 @@ function formatTimeAgo(dateStr: string): string {
 
 export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
   const { context } = useMiniApp();
-  const { address } = useAccount();
+  const { address, chainId: walletChainId } = useAccount();
+  const { switchChain } = useSwitchChain();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [rewardsData, setRewardsData] = useState<RewardsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -83,6 +84,7 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
   const { writeContractAsync, data: claimTxHash } = useWriteContract();
   const { isLoading: isClaimConfirming, isSuccess: isClaimConfirmed } = useWaitForTransactionReceipt({
     hash: claimTxHash,
+    chainId: CHAIN_ID,
   });
 
   const userFid = context?.user?.fid;
@@ -151,6 +153,11 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
     setClaimError(null);
 
     try {
+      // Switch network if needed
+      if (walletChainId !== CHAIN_ID) {
+        await switchChain({ chainId: CHAIN_ID });
+      }
+
       // Get signature from backend
       const res = await fetch("/api/claim-reward", {
         method: "POST",
@@ -180,6 +187,7 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
           BigInt(deadline),
           signature as `0x${string}`,
         ],
+        chainId: CHAIN_ID,
       });
 
       // Refetch rewards after claim

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useMiniApp } from "@neynar/react";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { VAULT_ADDRESS, vaultAbi } from "~/lib/contracts";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi";
+import { VAULT_ADDRESS, vaultAbi, CHAIN_ID } from "~/lib/contracts";
 import type { Idea } from "~/lib/types";
 
 interface DashboardTabProps {
@@ -69,7 +69,8 @@ function formatTimeAgo(dateStr: string): string {
 
 export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
   const { context } = useMiniApp();
-  const { address } = useAccount();
+  const { address, chainId: walletChainId } = useAccount();
+  const { switchChain } = useSwitchChain();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeSubTab, setActiveSubTab] = useState<DashboardSubTab>("ideas");
@@ -79,6 +80,7 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
   const { writeContractAsync, data: withdrawTxHash } = useWriteContract();
   const { isLoading: isWithdrawConfirming, isSuccess: isWithdrawConfirmed } = useWaitForTransactionReceipt({
     hash: withdrawTxHash,
+    chainId: CHAIN_ID,
   });
 
   const handleIdeaClick = async (ideaId: number) => {
@@ -132,6 +134,11 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
     setWithdrawError(null);
 
     try {
+      // Switch network if needed
+      if (walletChainId !== CHAIN_ID) {
+        await switchChain({ chainId: CHAIN_ID });
+      }
+
       // Get signature from backend
       const res = await fetch(`/api/ideas/${ideaId}/refund-signature`, {
         method: "POST",
@@ -161,6 +168,7 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
           BigInt(deadline),
           signature as `0x${string}`,
         ],
+        chainId: CHAIN_ID,
       });
 
       // Refetch user data after confirmation
