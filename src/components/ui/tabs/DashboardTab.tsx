@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useMiniApp } from "@neynar/react";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { VAULT_ADDRESS, vaultAbi } from "~/lib/contracts";
 import type { Idea } from "~/lib/types";
 
 interface DashboardTabProps {
@@ -36,8 +38,11 @@ interface RecentBuild {
 interface RecentFunding {
   idea_id: number;
   idea_title: string;
+  idea_status: string;
   amount: number;
   created_at: string;
+  refund_eligible: boolean;
+  days_until_refund: number;
 }
 
 interface UserData {
@@ -64,9 +69,17 @@ function formatTimeAgo(dateStr: string): string {
 
 export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
   const { context } = useMiniApp();
+  const { address } = useAccount();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeSubTab, setActiveSubTab] = useState<DashboardSubTab>("ideas");
+  const [withdrawingIdeaId, setWithdrawingIdeaId] = useState<number | null>(null);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+
+  const { writeContractAsync, data: withdrawTxHash } = useWriteContract();
+  const { isLoading: isWithdrawConfirming, isSuccess: isWithdrawConfirmed } = useWaitForTransactionReceipt({
+    hash: withdrawTxHash,
+  });
 
   const handleIdeaClick = async (ideaId: number) => {
     try {
@@ -107,6 +120,62 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
 
     fetchUserData();
   }, [userFid]);
+
+  // Handle refund claim
+  const handleWithdraw = async (ideaId: number) => {
+    if (!userFid || !address || !VAULT_ADDRESS) {
+      setWithdrawError("Please connect your wallet first");
+      return;
+    }
+
+    setWithdrawingIdeaId(ideaId);
+    setWithdrawError(null);
+
+    try {
+      // Get signature from backend
+      const res = await fetch(`/api/ideas/${ideaId}/refund-signature`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_fid: userFid,
+          recipient: address,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to get refund signature");
+      }
+
+      const { cumulativeAmount, deadline, signature } = await res.json();
+
+      // Submit to contract
+      await writeContractAsync({
+        address: VAULT_ADDRESS,
+        abi: vaultAbi,
+        functionName: "claimRefund",
+        args: [
+          BigInt(userFid),
+          address,
+          BigInt(cumulativeAmount),
+          BigInt(deadline),
+          signature as `0x${string}`,
+        ],
+      });
+
+      // Refetch user data after confirmation
+      const userRes = await fetch(`/api/users/${userFid}`);
+      if (userRes.ok) {
+        const data = await userRes.json();
+        setUserData(data.data);
+      }
+    } catch (error) {
+      console.error("Withdraw error:", error);
+      setWithdrawError(error instanceof Error ? error.message : "Failed to withdraw");
+    } finally {
+      setWithdrawingIdeaId(null);
+    }
+  };
 
   // Not logged in via Farcaster
   if (!context?.user) {
@@ -229,22 +298,66 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
 
       {activeSubTab === "funded" && (
         <div className="space-y-3">
+          {withdrawError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+              {withdrawError}
+            </div>
+          )}
+          {isWithdrawConfirmed && (
+            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-green-400 text-sm">
+              Refund claimed successfully!
+            </div>
+          )}
           {recentFunding.length === 0 ? (
             <p className="text-gray-500 text-sm py-4">You haven&apos;t funded any ideas yet.</p>
           ) : (
             recentFunding.map((f, i) => (
               <div
                 key={i}
-                onClick={() => f.idea_id && handleIdeaClick(f.idea_id)}
-                className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 hover:border-gray-600 cursor-pointer transition-all"
+                className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 transition-all"
               >
-                <div className="flex items-center justify-between gap-4">
+                <div
+                  onClick={() => f.idea_id && handleIdeaClick(f.idea_id)}
+                  className="flex items-center justify-between gap-4 cursor-pointer hover:opacity-80"
+                >
                   <div className="flex-1 min-w-0">
                     <h4 className="font-medium text-white truncate">{f.idea_title}</h4>
                     <p className="text-gray-500 text-sm">{formatTimeAgo(f.created_at)}</p>
                   </div>
-                  <div className="text-emerald-400 font-bold flex-shrink-0">${f.amount}</div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-emerald-400 font-bold">${f.amount}</div>
+                    {f.idea_status === "completed" && (
+                      <span className="text-green-400 text-xs">Completed</span>
+                    )}
+                  </div>
                 </div>
+
+                {/* Refund section for open ideas */}
+                {f.idea_status === "open" && (
+                  <div className="mt-3 pt-3 border-t border-gray-700">
+                    {f.refund_eligible ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleWithdraw(f.idea_id);
+                        }}
+                        disabled={withdrawingIdeaId === f.idea_id || isWithdrawConfirming}
+                        className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-gray-600 text-white py-2 rounded-lg text-sm font-medium"
+                      >
+                        {withdrawingIdeaId === f.idea_id || isWithdrawConfirming
+                          ? "Processing..."
+                          : "Claim Refund"}
+                      </button>
+                    ) : (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-400">Refund available in:</span>
+                        <span className="text-orange-400 font-medium">
+                          {f.days_until_refund} day{f.days_until_refund !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))
           )}

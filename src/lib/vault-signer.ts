@@ -7,6 +7,9 @@
 
 import { ethers } from "ethers";
 
+// Chain ID - Base Mainnet: 8453, Base Sepolia: 84532
+const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID) || 84532; // Default to Sepolia for testing
+
 // EIP-712 Domain - must match contract exactly
 function getEIP712Domain() {
   const vaultAddress = process.env.VAULT_ADDRESS;
@@ -17,7 +20,7 @@ function getEIP712Domain() {
   return {
     name: "The Shipyard",
     version: "1",
-    chainId: 8453, // Base Mainnet
+    chainId: CHAIN_ID,
     verifyingContract: vaultAddress,
   };
 }

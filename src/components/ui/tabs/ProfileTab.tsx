@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useMiniApp } from "@neynar/react";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { VAULT_ADDRESS, vaultAbi } from "~/lib/contracts";
 
 interface ProfileTabProps {
   onOpenAdmin?: () => void;
@@ -33,6 +35,20 @@ interface RecentBuild {
   created_at: string;
 }
 
+interface RewardProject {
+  idea_id: number;
+  title: string;
+  reward: number;
+}
+
+interface RewardsData {
+  totalRewards: number;
+  builderRewards: number;
+  submitterRewards: number;
+  builderProjects: RewardProject[];
+  submittedIdeas: RewardProject[];
+}
+
 interface UserData {
   user: UserProfile;
   stats: UserStats;
@@ -55,10 +71,19 @@ function formatTimeAgo(dateStr: string): string {
 
 export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
   const { context } = useMiniApp();
+  const { address } = useAccount();
   const [userData, setUserData] = useState<UserData | null>(null);
+  const [rewardsData, setRewardsData] = useState<RewardsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [_error, setError] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isClaiming, setIsClaiming] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+
+  const { writeContractAsync, data: claimTxHash } = useWriteContract();
+  const { isLoading: isClaimConfirming, isSuccess: isClaimConfirmed } = useWaitForTransactionReceipt({
+    hash: claimTxHash,
+  });
 
   const userFid = context?.user?.fid;
 
@@ -73,10 +98,11 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
       setError(null);
 
       try {
-        // Fetch user data and admin status in parallel
-        const [userRes, adminRes] = await Promise.all([
+        // Fetch user data, admin status, and rewards in parallel
+        const [userRes, adminRes, rewardsRes] = await Promise.all([
           fetch(`/api/users/${userFid}`),
           fetch(`/api/admin/check?fid=${userFid}`),
+          fetch(`/api/claim-reward?fid=${userFid}`),
         ]);
 
         if (userRes.ok) {
@@ -93,6 +119,11 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
           const adminData = await adminRes.json();
           setIsAdmin(adminData.is_admin);
         }
+
+        if (rewardsRes.ok) {
+          const rewardsJson = await rewardsRes.json();
+          setRewardsData(rewardsJson);
+        }
       } catch (err) {
         console.error("Failed to fetch user profile:", err);
         setError("Failed to load profile");
@@ -103,6 +134,67 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
 
     fetchUserProfile();
   }, [userFid]);
+
+  // Handle claiming rewards
+  const handleClaimRewards = async () => {
+    if (!userFid || !address || !VAULT_ADDRESS) {
+      setClaimError("Please connect your wallet first");
+      return;
+    }
+
+    if (!rewardsData || rewardsData.totalRewards <= 0) {
+      setClaimError("No rewards to claim");
+      return;
+    }
+
+    setIsClaiming(true);
+    setClaimError(null);
+
+    try {
+      // Get signature from backend
+      const res = await fetch("/api/claim-reward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_fid: userFid,
+          recipient: address,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to get reward signature");
+      }
+
+      const { cumulativeAmount, deadline, signature } = await res.json();
+
+      // Submit to contract
+      await writeContractAsync({
+        address: VAULT_ADDRESS,
+        abi: vaultAbi,
+        functionName: "claimReward",
+        args: [
+          BigInt(userFid),
+          address,
+          BigInt(cumulativeAmount),
+          BigInt(deadline),
+          signature as `0x${string}`,
+        ],
+      });
+
+      // Refetch rewards after claim
+      const rewardsRes = await fetch(`/api/claim-reward?fid=${userFid}`);
+      if (rewardsRes.ok) {
+        const rewardsJson = await rewardsRes.json();
+        setRewardsData(rewardsJson);
+      }
+    } catch (error) {
+      console.error("Claim reward error:", error);
+      setClaimError(error instanceof Error ? error.message : "Failed to claim rewards");
+    } finally {
+      setIsClaiming(false);
+    }
+  };
 
   // Not logged in via Farcaster
   if (!context?.user) {
@@ -214,6 +306,78 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
           </div>
         )}
       </div>
+
+      {/* Claim Rewards Section */}
+      {rewardsData && rewardsData.totalRewards > 0 && (
+        <div className="bg-gradient-to-r from-emerald-900/30 to-blue-900/30 border border-emerald-500/30 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-white">Available Rewards</h3>
+            <div className="text-2xl font-bold text-emerald-400">
+              ${rewardsData.totalRewards.toFixed(2)}
+            </div>
+          </div>
+
+          {/* Breakdown */}
+          <div className="space-y-2 mb-4 text-sm">
+            {rewardsData.builderRewards > 0 && (
+              <div className="flex items-center justify-between text-gray-300">
+                <span>Builder rewards (85%)</span>
+                <span className="text-emerald-400">${rewardsData.builderRewards.toFixed(2)}</span>
+              </div>
+            )}
+            {rewardsData.submitterRewards > 0 && (
+              <div className="flex items-center justify-between text-gray-300">
+                <span>Idea submitter rewards (5%)</span>
+                <span className="text-blue-400">${rewardsData.submitterRewards.toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Project breakdown */}
+          {(rewardsData.builderProjects.length > 0 || rewardsData.submittedIdeas.length > 0) && (
+            <div className="border-t border-gray-700 pt-3 mb-4">
+              <p className="text-xs text-gray-500 mb-2">From projects:</p>
+              <div className="space-y-1 text-xs">
+                {rewardsData.builderProjects.map((p) => (
+                  <div key={`builder-${p.idea_id}`} className="flex justify-between text-gray-400">
+                    <span className="truncate mr-2">{p.title}</span>
+                    <span className="text-emerald-400 flex-shrink-0">${p.reward.toFixed(2)}</span>
+                  </div>
+                ))}
+                {rewardsData.submittedIdeas.map((p) => (
+                  <div key={`submitter-${p.idea_id}`} className="flex justify-between text-gray-400">
+                    <span className="truncate mr-2">{p.title} (idea)</span>
+                    <span className="text-blue-400 flex-shrink-0">${p.reward.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {claimError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-2 mb-3 text-red-400 text-sm">
+              {claimError}
+            </div>
+          )}
+          {isClaimConfirmed && (
+            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-2 mb-3 text-green-400 text-sm">
+              Rewards claimed successfully!
+            </div>
+          )}
+
+          <button
+            onClick={handleClaimRewards}
+            disabled={isClaiming || isClaimConfirming || !address}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-600 text-white py-3 rounded-lg font-medium"
+          >
+            {!address
+              ? "Connect Wallet to Claim"
+              : isClaiming || isClaimConfirming
+                ? "Processing..."
+                : `Claim $${rewardsData.totalRewards.toFixed(2)} USDC`}
+          </button>
+        </div>
+      )}
 
       {/* Recent Builds */}
       <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">

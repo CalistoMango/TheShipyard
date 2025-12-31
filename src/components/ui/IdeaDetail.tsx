@@ -649,6 +649,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
             <h3 className="text-xl font-bold text-white mb-4">Fund this idea</h3>
             <p className="text-gray-400 text-sm mb-4">
               Contribute USDC to the pool. 85% goes to the builder, 5% to the idea submitter.
+              If no one builds it within 30 days, you can claim a full refund.
             </p>
 
             {/* Wallet connection status */}

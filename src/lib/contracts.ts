@@ -4,8 +4,19 @@
  * Uses ShipyardVault - a FID-based USDC vault with signature claims
  */
 
-// Contract addresses - update VAULT_ADDRESS after deployment
-export const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
+// Chain configuration - set via environment or defaults to Base Mainnet
+// Base Mainnet: 8453, Base Sepolia: 84532
+export const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID) || 84532; // Default to Sepolia for testing
+export const IS_TESTNET = CHAIN_ID === 84532;
+
+// Contract addresses
+// Base Mainnet USDC: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+// Base Sepolia USDC: 0x036CbD53842c5426634e7929541eC2318f3dCF7e
+export const USDC_ADDRESS = (
+  IS_TESTNET
+    ? "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    : "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+) as `0x${string}`;
 export const VAULT_ADDRESS = process.env.NEXT_PUBLIC_VAULT_ADDRESS as `0x${string}` | undefined;
 
 // Standard ERC20 ABI (minimal for approve + allowance)
@@ -183,15 +194,14 @@ export function ideaToProjectId(ideaId: number): `0x${string}` {
   return `0x${ideaId.toString(16).padStart(64, '0')}` as `0x${string}`;
 }
 
-// Chain config
-export const BASE_CHAIN_ID = 8453;
+// Constants
 export const USDC_DECIMALS = 6;
 
 // EIP-712 domain for signing (must match contract)
 export const VAULT_DOMAIN = {
   name: "The Shipyard",
   version: "1",
-  chainId: BASE_CHAIN_ID,
+  chainId: CHAIN_ID,
   // verifyingContract will be added when VAULT_ADDRESS is set
 } as const;
 

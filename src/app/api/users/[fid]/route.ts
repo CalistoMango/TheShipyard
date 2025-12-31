@@ -54,7 +54,7 @@ export async function GET(
       .order("created_at", { ascending: false })
       .limit(10);
 
-    // Get funding by user
+    // Get funding by user with idea status for refund eligibility
     const { data: funding } = await supabase
       .from("funding")
       .select(
@@ -63,7 +63,10 @@ export async function GET(
         created_at,
         ideas:idea_id (
           id,
-          title
+          title,
+          status,
+          updated_at,
+          created_at
         )
       `
       )
@@ -122,12 +125,32 @@ export async function GET(
           };
         }) || [],
         recent_funding: funding?.map((f) => {
-          const idea = (f.ideas as unknown as { id: number; title: string }[] | null)?.[0] ?? null;
+          const idea = (f.ideas as unknown as {
+            id: number;
+            title: string;
+            status: string;
+            updated_at: string | null;
+            created_at: string;
+          }[] | null)?.[0] ?? null;
+
+          // Calculate refund eligibility (30+ days since last activity, idea still open)
+          let refundEligible = false;
+          let daysUntilRefund = 0;
+          if (idea && idea.status === "open") {
+            const lastActivity = new Date(idea.updated_at || idea.created_at);
+            const daysSinceActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
+            refundEligible = daysSinceActivity >= 30;
+            daysUntilRefund = Math.max(0, Math.ceil(30 - daysSinceActivity));
+          }
+
           return {
             idea_id: idea?.id,
             idea_title: idea?.title || "Unknown",
+            idea_status: idea?.status || "unknown",
             amount: Number(f.amount),
             created_at: f.created_at,
+            refund_eligible: refundEligible,
+            days_until_refund: daysUntilRefund,
           };
         }) || [],
         recent_payouts: payouts?.map((p) => ({

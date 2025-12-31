@@ -104,10 +104,18 @@ export function Header({ neynarUser }: HeaderProps) {
                 <h3 className="font-semibold text-white mb-1">How Funding Works</h3>
                 <ul className="list-disc list-inside space-y-1">
                   <li>Anyone can fund ideas they want built</li>
-                  <li>70% of the pool goes to the builder</li>
-                  <li>10% goes to the idea submitter</li>
-                  <li>20% goes to the platform</li>
+                  <li>85% of the pool goes to the builder</li>
+                  <li>5% goes to the idea submitter</li>
+                  <li>10% goes to the platform</li>
                 </ul>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-white mb-1">Refunds</h3>
+                <p>
+                  If an idea isn&apos;t built within 30 days, funders can withdraw their
+                  contributions. Check the &quot;Funded&quot; tab in My Activity to claim refunds.
+                </p>
               </div>
 
               <div>

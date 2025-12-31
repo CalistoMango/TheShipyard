@@ -63,6 +63,10 @@ export async function POST(
     const lastActivity = new Date(idea.updated_at || idea.created_at);
     const daysSinceActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
 
+    // Allow bypassing time check on testnet for testing
+    const skipTimeCheck = process.env.SKIP_REFUND_DELAY === "true" &&
+                          process.env.NEXT_PUBLIC_CHAIN_ID === "84532";
+
     if (idea.status !== "open") {
       return NextResponse.json(
         { error: "Refunds are only available for open ideas" },
@@ -70,7 +74,7 @@ export async function POST(
       );
     }
 
-    if (daysSinceActivity < 30) {
+    if (daysSinceActivity < 30 && !skipTimeCheck) {
       return NextResponse.json(
         {
           error: "Refunds are only available after 30 days of inactivity",
@@ -112,6 +116,9 @@ export async function POST(
         created_at: string;
       };
       if (ideaInfo.status !== "open") return false;
+
+      // Skip time check on testnet if flag is set
+      if (skipTimeCheck) return true;
 
       const lastUpdate = new Date(ideaInfo.updated_at || ideaInfo.created_at);
       return now - lastUpdate.getTime() >= THIRTY_DAYS_MS;
