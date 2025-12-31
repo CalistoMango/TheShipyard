@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useMiniApp } from "@neynar/react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi";
 import { VAULT_ADDRESS, vaultAbi, CHAIN_ID } from "~/lib/contracts";
+import { SUBMITTER_FEE_PERCENT } from "~/lib/constants";
 import type { Idea } from "~/lib/types";
 
 interface DashboardTabProps {
@@ -295,7 +296,7 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
                 {idea.pool > 0 && (
                   <div className="mt-2 pt-2 border-t border-gray-700 flex items-center justify-between">
                     <span className="text-gray-400 text-sm">Potential earnings:</span>
-                    <span className="text-emerald-400 font-medium">${(idea.pool * 0.1).toFixed(0)} (10%)</span>
+                    <span className="text-emerald-400 font-medium">${(idea.pool * SUBMITTER_FEE_PERCENT / 100).toFixed(2)} ({SUBMITTER_FEE_PERCENT}%)</span>
                   </div>
                 )}
               </div>
@@ -343,27 +344,26 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
                 {/* Refund section for open ideas */}
                 {f.idea_status === "open" && (
                   <div className="mt-3 pt-3 border-t border-gray-700">
-                    {f.refund_eligible ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (f.refund_eligible) {
                           handleWithdraw(f.idea_id);
-                        }}
-                        disabled={withdrawingIdeaId === f.idea_id || isWithdrawConfirming}
-                        className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-gray-600 text-white py-2 rounded-lg text-sm font-medium"
-                      >
-                        {withdrawingIdeaId === f.idea_id || isWithdrawConfirming
-                          ? "Processing..."
-                          : "Claim Refund"}
-                      </button>
-                    ) : (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-400">Refund available in:</span>
-                        <span className="text-orange-400 font-medium">
-                          {f.days_until_refund} day{f.days_until_refund !== 1 ? "s" : ""}
-                        </span>
-                      </div>
-                    )}
+                        }
+                      }}
+                      disabled={!f.refund_eligible || withdrawingIdeaId === f.idea_id || isWithdrawConfirming}
+                      className={`w-full py-2 rounded-lg text-sm font-medium ${
+                        f.refund_eligible
+                          ? "bg-orange-600 hover:bg-orange-500 text-white"
+                          : "bg-gray-700 text-gray-400 cursor-not-allowed"
+                      } disabled:opacity-50`}
+                    >
+                      {withdrawingIdeaId === f.idea_id || isWithdrawConfirming
+                        ? "Processing..."
+                        : f.refund_eligible
+                          ? "Claim Refund"
+                          : `Refund in ${f.days_until_refund} day${f.days_until_refund !== 1 ? "s" : ""}`}
+                    </button>
                   </div>
                 )}
               </div>

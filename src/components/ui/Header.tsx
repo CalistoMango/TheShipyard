@@ -3,6 +3,7 @@
 import { useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import { useMiniApp } from "@neynar/react";
+import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT, PLATFORM_FEE_PERCENT } from "~/lib/constants";
 
 type HeaderProps = {
   neynarUser?: {
@@ -104,9 +105,9 @@ export function Header({ neynarUser }: HeaderProps) {
                 <h3 className="font-semibold text-white mb-1">How Funding Works</h3>
                 <ul className="list-disc list-inside space-y-1">
                   <li>Anyone can fund ideas they want built</li>
-                  <li>85% of the pool goes to the builder</li>
-                  <li>5% goes to the idea submitter</li>
-                  <li>10% goes to the platform</li>
+                  <li>{BUILDER_FEE_PERCENT}% of the pool goes to the builder</li>
+                  <li>{SUBMITTER_FEE_PERCENT}% goes to the idea submitter</li>
+                  <li>{PLATFORM_FEE_PERCENT}% goes to the platform</li>
                 </ul>
               </div>
 

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
+import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT, PLATFORM_FEE_PERCENT } from "~/lib/constants";
 
-// Payout split from rules: 70% builder, 10% submitter, 20% platform
+// Payout split from constants (as decimals for calculation)
 const PAYOUT_SPLIT = {
-  builder: 0.7,
-  submitter: 0.1,
-  platform: 0.2,
+  builder: BUILDER_FEE_PERCENT / 100,
+  submitter: SUBMITTER_FEE_PERCENT / 100,
+  platform: PLATFORM_FEE_PERCENT / 100,
 };
 
 // Platform FID (for platform share) - should be configured

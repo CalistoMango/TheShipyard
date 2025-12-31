@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useMiniApp } from "@neynar/react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi";
 import { VAULT_ADDRESS, vaultAbi, CHAIN_ID } from "~/lib/contracts";
+import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT } from "~/lib/constants";
 
 interface ProfileTabProps {
   onOpenAdmin?: () => void;
@@ -329,13 +330,13 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
           <div className="space-y-2 mb-4 text-sm">
             {rewardsData.builderRewards > 0 && (
               <div className="flex items-center justify-between text-gray-300">
-                <span>Builder rewards (85%)</span>
+                <span>Builder rewards ({BUILDER_FEE_PERCENT}%)</span>
                 <span className="text-emerald-400">${rewardsData.builderRewards.toFixed(2)}</span>
               </div>
             )}
             {rewardsData.submitterRewards > 0 && (
               <div className="flex items-center justify-between text-gray-300">
-                <span>Idea submitter rewards (5%)</span>
+                <span>Idea submitter rewards ({SUBMITTER_FEE_PERCENT}%)</span>
                 <span className="text-blue-400">${rewardsData.submitterRewards.toFixed(2)}</span>
               </div>
             )}
@@ -402,7 +403,7 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
                 </div>
                 <div className="text-right">
                   {b.status === "approved" ? (
-                    <div className="text-emerald-400 font-medium">${b.idea_pool * 0.7}</div>
+                    <div className="text-emerald-400 font-medium">${(b.idea_pool * BUILDER_FEE_PERCENT / 100).toFixed(2)}</div>
                   ) : (
                     <span className="text-xs text-yellow-400">{b.status}</span>
                   )}

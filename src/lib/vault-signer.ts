@@ -6,6 +6,7 @@
  */
 
 import { ethers } from "ethers";
+import { SUBMITTER_FEE_PERCENT, PLATFORM_FEE_PERCENT } from "./constants";
 
 // Chain ID - Base Mainnet: 8453, Base Sepolia: 84532
 const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID) || 84532; // Default to Sepolia for testing
@@ -143,19 +144,18 @@ export async function signRewardClaim(params: ClaimParams): Promise<SignedClaim>
  * Calculate payout breakdown for a successful project
  *
  * @param totalPool - Total USDC in the project pool (in base units, 6 decimals)
- * @param platformFeePercent - Platform fee percentage (default 10%)
- * @returns Breakdown of payouts
+ * @returns Breakdown of payouts using fee constants from constants.ts
  */
-export function calculatePayouts(totalPool: bigint, platformFeePercent = 10n) {
-  const platformFee = (totalPool * platformFeePercent) / 100n;
-  const ideaCreatorFee = (totalPool * 5n) / 100n;
+export function calculatePayouts(totalPool: bigint) {
+  const platformFee = (totalPool * BigInt(PLATFORM_FEE_PERCENT)) / 100n;
+  const ideaCreatorFee = (totalPool * BigInt(SUBMITTER_FEE_PERCENT)) / 100n;
   const builderPayout = totalPool - platformFee - ideaCreatorFee;
 
   return {
     totalPool,
-    platformFee, // 10% - stays in contract
-    ideaCreatorFee, // 5% - to idea submitter
-    builderPayout, // 85% - to builder
+    platformFee, // PLATFORM_FEE_SHARE - stays in contract
+    ideaCreatorFee, // SUBMITTER_FEE_SHARE - to idea submitter
+    builderPayout, // BUILDER_FEE_SHARE - to builder
   };
 }
 

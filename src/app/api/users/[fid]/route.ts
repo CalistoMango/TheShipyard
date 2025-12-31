@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
+import { REFUND_DELAY_DAYS } from "~/lib/constants";
 
 // GET /api/users/[fid] - Get user profile and stats
 export async function GET(
@@ -125,22 +126,23 @@ export async function GET(
           };
         }) || [],
         recent_funding: funding?.map((f) => {
-          const idea = (f.ideas as unknown as {
+          // Supabase returns single-row joins as objects, not arrays
+          const idea = f.ideas as unknown as {
             id: number;
             title: string;
             status: string;
             updated_at: string | null;
             created_at: string;
-          }[] | null)?.[0] ?? null;
+          } | null;
 
-          // Calculate refund eligibility (30+ days since last activity, idea still open)
+          // Calculate refund eligibility (REFUND_DELAY_DAYS since last activity, idea still open)
           let refundEligible = false;
           let daysUntilRefund = 0;
           if (idea && idea.status === "open") {
             const lastActivity = new Date(idea.updated_at || idea.created_at);
             const daysSinceActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
-            refundEligible = daysSinceActivity >= 30;
-            daysUntilRefund = Math.max(0, Math.ceil(30 - daysSinceActivity));
+            refundEligible = daysSinceActivity >= REFUND_DELAY_DAYS;
+            daysUntilRefund = Math.max(0, Math.ceil(REFUND_DELAY_DAYS - daysSinceActivity));
           }
 
           return {

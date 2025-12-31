@@ -11,6 +11,22 @@ import { type AccountAssociation } from '@farcaster/miniapp-core/src/manifest';
  * Manual changes may be overwritten during project initialization.
  */
 
+// --- Fee Configuration ---
+/**
+ * Fee share percentages for the platform (as whole numbers).
+ * These values determine how the bounty pool is split when a build is approved.
+ */
+export const BUILDER_FEE_PERCENT = 85; // 85% goes to the builder
+export const SUBMITTER_FEE_PERCENT = 5; // 5% goes to the idea submitter
+export const PLATFORM_FEE_PERCENT = 10; // 10% goes to the platform
+
+// --- Refund Configuration ---
+/**
+ * Number of days before a refund becomes available for unfulfilled ideas.
+ * Set SKIP_REFUND_DELAY=true in env to allow immediate refunds for testing.
+ */
+export const REFUND_DELAY_DAYS = process.env.SKIP_REFUND_DELAY === "true" ? 0 : 30;
+
 // --- Admin Configuration ---
 /**
  * Admin API key for protected endpoints.

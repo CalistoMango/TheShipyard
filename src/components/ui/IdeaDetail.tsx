@@ -8,7 +8,7 @@ import { parseUnits, formatUnits } from "viem";
 import type { Idea, Category, FundingEntry, WinningBuild, Comment } from "~/lib/types";
 import { ProfileLink } from "~/components/ui/ProfileLink";
 import { CastLink } from "~/components/ui/CastLink";
-import { APP_URL } from "~/lib/constants";
+import { APP_URL, BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT } from "~/lib/constants";
 import { USDC_ADDRESS, VAULT_ADDRESS, erc20Abi, vaultAbi, USDC_DECIMALS, ideaToProjectId, CHAIN_ID } from "~/lib/contracts";
 
 interface IdeaDetailProps {
@@ -670,7 +670,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
           <div className="bg-gray-800 rounded-xl p-6 max-w-md w-full">
             <h3 className="text-xl font-bold text-white mb-4">Fund this idea</h3>
             <p className="text-gray-400 text-sm mb-4">
-              Contribute USDC to the pool. 85% goes to the builder, 5% to the idea submitter.
+              Contribute USDC to the pool. {BUILDER_FEE_PERCENT}% goes to the builder, {SUBMITTER_FEE_PERCENT}% to the idea submitter.
               If no one builds it within 30 days, you can claim a full refund.
             </p>
 
