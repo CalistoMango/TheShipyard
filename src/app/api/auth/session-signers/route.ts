@@ -1,7 +1,23 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getNeynarClient } from '~/lib/neynar';
+import { validateAuth } from '~/lib/auth';
 
-export async function GET(request: Request) {
+/**
+ * GET /api/auth/session-signers
+ *
+ * Fetches session signers with user data from Neynar. Requires authentication
+ * to prevent API quota abuse.
+ */
+export async function GET(request: NextRequest) {
+  // Require authentication to prevent API quota abuse
+  const auth = await validateAuth(request);
+  if (!auth.authenticated) {
+    return NextResponse.json(
+      { error: 'Authentication required' },
+      { status: 401 }
+    );
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const message = searchParams.get('message');

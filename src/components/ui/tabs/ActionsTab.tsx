@@ -7,6 +7,7 @@ import { Button } from '../Button';
 import { SignIn } from '../wallet/SignIn';
 import { type Haptics } from '@farcaster/miniapp-sdk';
 import { APP_URL } from '~/lib/constants';
+import { authPost } from '~/lib/api';
 
 /**
  * ActionsTab component handles mini app actions like sharing, notifications, and haptic feedback.
@@ -56,14 +57,9 @@ export function ActionsTab() {
       return;
     }
     try {
-      const response = await fetch('/api/send-notification', {
-        method: 'POST',
-        mode: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fid: context.user.fid,
-          notificationDetails,
-        }),
+      const response = await authPost('/api/send-notification', {
+        fid: context.user.fid,
+        notificationDetails,
       });
       if (response.status === 200) {
         setNotificationState((prev) => ({ ...prev, sendStatus: 'Success' }));

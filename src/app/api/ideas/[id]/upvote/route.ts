@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { fetchUserInfo } from "~/lib/neynar";
+import { validateAuth, validateFidMatch } from "~/lib/auth";
 
 interface UpvoteRequest {
   user_fid: number;
@@ -19,6 +20,12 @@ export async function POST(
   }
 
   try {
+    // Validate authentication
+    const auth = await validateAuth(request);
+    if (!auth.authenticated || !auth.fid) {
+      return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+    }
+
     const body = (await request.json()) as UpvoteRequest;
 
     if (!body.user_fid) {
@@ -26,6 +33,12 @@ export async function POST(
         { error: "Missing required field: user_fid" },
         { status: 400 }
       );
+    }
+
+    // Verify authenticated user matches requested FID
+    const fidError = validateFidMatch(auth.fid, body.user_fid);
+    if (fidError) {
+      return NextResponse.json({ error: fidError }, { status: 403 });
     }
 
     const supabase = createServerClient();
@@ -84,27 +97,14 @@ export async function POST(
       // Remove upvote (toggle off)
       await supabase.from("upvotes").delete().eq("id", existingUpvote.id);
 
-      // Decrement upvote_count
-      await supabase
-        .from("ideas")
-        .update({ upvote_count: idea.status === "open" ? Math.max(0, -1) : 0 })
-        .eq("id", ideaId);
-
-      // Get updated count
-      const { count } = await supabase
-        .from("upvotes")
-        .select("*", { count: "exact", head: true })
-        .eq("idea_id", ideaId);
-
-      await supabase
-        .from("ideas")
-        .update({ upvote_count: count || 0 })
-        .eq("id", ideaId);
+      // ATOMIC: Sync upvote_count with actual table count
+      const { data: newCount } = await supabase
+        .rpc("sync_upvote_count", { idea_id_param: ideaId });
 
       return NextResponse.json({
         status: "removed",
         upvoted: false,
-        upvote_count: count || 0,
+        upvote_count: newCount || 0,
       });
     } else {
       // Add upvote (toggle on)
@@ -121,21 +121,14 @@ export async function POST(
         );
       }
 
-      // Get updated count
-      const { count } = await supabase
-        .from("upvotes")
-        .select("*", { count: "exact", head: true })
-        .eq("idea_id", ideaId);
-
-      await supabase
-        .from("ideas")
-        .update({ upvote_count: count || 0 })
-        .eq("id", ideaId);
+      // ATOMIC: Sync upvote_count with actual table count
+      const { data: newCount } = await supabase
+        .rpc("sync_upvote_count", { idea_id_param: ideaId });
 
       return NextResponse.json({
         status: "added",
         upvoted: true,
-        upvote_count: count || 0,
+        upvote_count: newCount || 0,
       });
     }
   } catch (error) {

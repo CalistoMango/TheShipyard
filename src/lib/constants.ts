@@ -31,15 +31,16 @@ export const REFUND_DELAY_DAYS = process.env.SKIP_REFUND_DELAY === "true" ? 0 : 
 /**
  * Admin API key for protected endpoints.
  * Used for admin-only operations like reviewing reports.
+ * SECURITY: No default - must be set in environment.
  */
-export const ADMIN_API_KEY: string = process.env.ADMIN_API_KEY || "dev-admin-key";
+export const ADMIN_API_KEY: string | undefined = process.env.ADMIN_API_KEY;
 
 // --- App Configuration ---
 /**
  * The base URL of the application.
  * Used for generating absolute URLs for assets and API endpoints.
  */
-export const APP_URL: string = process.env.NEXT_PUBLIC_URL!;
+export const APP_URL: string = (process.env.NEXT_PUBLIC_URL || '').replace(/\/$/, '');
 
 /**
  * The name of the mini app as displayed to users.

@@ -6,6 +6,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchCh
 import { VAULT_ADDRESS, vaultAbi, CHAIN_ID } from "~/lib/contracts";
 import { SUBMITTER_FEE_PERCENT } from "~/lib/constants";
 import type { Idea } from "~/lib/types";
+import { authPost } from "~/lib/api";
 
 interface DashboardTabProps {
   onSelectIdea: (idea: Idea) => void;
@@ -140,14 +141,10 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
         await switchChain({ chainId: CHAIN_ID });
       }
 
-      // Get signature from backend
-      const res = await fetch(`/api/ideas/${ideaId}/refund-signature`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_fid: userFid,
-          recipient: address,
-        }),
+      // Get signature from backend (authenticated)
+      const res = await authPost(`/api/ideas/${ideaId}/refund-signature`, {
+        user_fid: userFid,
+        recipient: address,
       });
 
       if (!res.ok) {
@@ -155,10 +152,10 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
         throw new Error(err.error || "Failed to get refund signature");
       }
 
-      const { cumulativeAmount, deadline, signature } = await res.json();
+      const { cumulativeAmount, cumulativeAmountUsdc, deadline, signature } = await res.json();
 
       // Submit to contract
-      await writeContractAsync({
+      const txHash = await writeContractAsync({
         address: VAULT_ADDRESS,
         abi: vaultAbi,
         functionName: "claimRefund",
@@ -172,7 +169,20 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
         chainId: CHAIN_ID,
       });
 
-      // Refetch user data after confirmation
+      // CRITICAL: Record the refund in the database to prevent double-claims (authenticated)
+      // This marks funding records as refunded and updates the pool
+      const recordRes = await authPost(`/api/ideas/${ideaId}/record-refund`, {
+        user_fid: userFid,
+        tx_hash: txHash,
+        amount: cumulativeAmountUsdc,
+      });
+
+      if (!recordRes.ok) {
+        console.error("Failed to record refund in database:", await recordRes.json());
+        // Don't throw - the on-chain tx succeeded, we just failed to record
+      }
+
+      // Refetch user data after recording
       const userRes = await fetch(`/api/users/${userFid}`);
       if (userRes.ok) {
         const data = await userRes.json();

@@ -1,10 +1,26 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { validateAuth } from '~/lib/auth';
 
-export async function GET(request: Request) {
+/**
+ * GET /api/best-friends
+ *
+ * Fetches best friends from Neynar. Requires authentication to prevent
+ * API quota abuse.
+ */
+export async function GET(request: NextRequest) {
+  // Require authentication to prevent API quota abuse
+  const auth = await validateAuth(request);
+  if (!auth.authenticated) {
+    return NextResponse.json(
+      { error: 'Authentication required' },
+      { status: 401 }
+    );
+  }
+
   const apiKey = process.env.NEYNAR_API_KEY;
   const { searchParams } = new URL(request.url);
   const fid = searchParams.get('fid');
-  
+
   if (!apiKey) {
     return NextResponse.json(
       { error: 'Neynar API key is not configured. Please add NEYNAR_API_KEY to your environment variables.' },

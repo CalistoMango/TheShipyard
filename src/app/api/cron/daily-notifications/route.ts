@@ -4,6 +4,11 @@ import { sendDailyTrendingNotifications } from "~/lib/notifications";
 // This endpoint should be called by Vercel Cron or external scheduler
 // Configure in vercel.json: {"crons": [{"path": "/api/cron/daily-notifications", "schedule": "0 9 * * *"}]}
 
+// SECURITY WARNING: Log if CRON_SECRET is not set
+if (!process.env.CRON_SECRET) {
+  console.warn("[SECURITY] CRON_SECRET not set - /api/cron/* endpoints are PUBLIC");
+}
+
 export async function GET(request: NextRequest) {
   // Verify cron secret to prevent unauthorized access
   const authHeader = request.headers.get("authorization");

@@ -5,6 +5,7 @@ import { useMiniApp } from "@neynar/react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi";
 import { VAULT_ADDRESS, vaultAbi, CHAIN_ID } from "~/lib/contracts";
 import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT } from "~/lib/constants";
+import { authPost } from "~/lib/api";
 
 interface ProfileTabProps {
   onOpenAdmin?: () => void;
@@ -159,14 +160,10 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
         await switchChain({ chainId: CHAIN_ID });
       }
 
-      // Get signature from backend
-      const res = await fetch("/api/claim-reward", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_fid: userFid,
-          recipient: address,
-        }),
+      // Get signature from backend (authenticated)
+      const res = await authPost("/api/claim-reward", {
+        user_fid: userFid,
+        recipient: address,
       });
 
       if (!res.ok) {
@@ -174,10 +171,10 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
         throw new Error(err.error || "Failed to get reward signature");
       }
 
-      const { cumulativeAmount, deadline, signature } = await res.json();
+      const { cumulativeAmount, cumulativeAmountUsdc, deadline, signature } = await res.json();
 
       // Submit to contract
-      await writeContractAsync({
+      const txHash = await writeContractAsync({
         address: VAULT_ADDRESS,
         abi: vaultAbi,
         functionName: "claimReward",
@@ -191,7 +188,20 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
         chainId: CHAIN_ID,
       });
 
-      // Refetch rewards after claim
+      // CRITICAL: Record the reward claim in the database to prevent double-claims (authenticated)
+      // This marks builder_reward_claimed and submitter_reward_claimed on ideas
+      const recordRes = await authPost("/api/record-reward", {
+        user_fid: userFid,
+        tx_hash: txHash,
+        amount: cumulativeAmountUsdc,
+      });
+
+      if (!recordRes.ok) {
+        console.error("Failed to record reward in database:", await recordRes.json());
+        // Don't throw - the on-chain tx succeeded
+      }
+
+      // Refetch rewards after claim (should now be 0)
       const rewardsRes = await fetch(`/api/claim-reward?fid=${userFid}`);
       if (rewardsRes.ok) {
         const rewardsJson = await rewardsRes.json();

@@ -6,6 +6,14 @@ const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY;
 const NEYNAR_AGENT_SIGNER_UUID = process.env.NEYNAR_AGENT_SIGNER_UUID;
 const APP_URL = process.env.NEXT_PUBLIC_URL || "https://the-shipyard.vercel.app";
 
+// Internal secret for webhook -> ingest calls (prevents public abuse)
+const INGEST_SECRET = process.env.INGEST_SECRET;
+
+// SECURITY WARNING: Log if INGEST_SECRET is not set
+if (!INGEST_SECRET) {
+  console.warn("[SECURITY] INGEST_SECRET not set - /api/ingest endpoint is PUBLIC");
+}
+
 interface IngestRequest {
   cast_hash: string;
   cast_text: string;
@@ -51,6 +59,17 @@ async function replyToCast(parentHash: string, text: string): Promise<boolean> {
 
 export async function POST(request: NextRequest) {
   try {
+    // SECURITY: Verify internal secret to prevent public abuse
+    // This endpoint should only be called by our webhook handler
+    const authHeader = request.headers.get("x-ingest-secret");
+    if (INGEST_SECRET && authHeader !== INGEST_SECRET) {
+      console.error("[INGEST] Invalid or missing ingest secret");
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json() as IngestRequest;
 
     console.log("[INGEST] Received cast:", {

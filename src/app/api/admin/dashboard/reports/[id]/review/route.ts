@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-import { isAdminFid } from "~/lib/admin";
+import { validateAuth, isAdminFid } from "~/lib/auth";
 
 // POST /api/admin/dashboard/reports/[id]/review - Approve or dismiss a report
 export async function POST(
@@ -10,13 +10,17 @@ export async function POST(
   const { id: reportId } = await params;
 
   try {
-    const body = await request.json();
-    const adminFid = body.admin_fid;
-    const action = body.action;
-
-    if (!adminFid || !isAdminFid(adminFid)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    // Validate admin authentication via JWT
+    const auth = await validateAuth(request);
+    if (!auth.authenticated || !auth.fid) {
+      return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
     }
+    if (!isAdminFid(auth.fid)) {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const action = body.action;
 
     if (!action || !["approve", "dismiss"].includes(action)) {
       return NextResponse.json(

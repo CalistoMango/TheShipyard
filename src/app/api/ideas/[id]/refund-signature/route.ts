@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-import { signRefundClaim, usdcToBaseUnits } from "~/lib/vault-signer";
+import { signRefundClaim, usdcToBaseUnits, getLastClaimedRefund } from "~/lib/vault-signer";
+import { validateAuth, validateFidMatch } from "~/lib/auth";
+import { REFUND_DELAY_DAYS } from "~/lib/constants";
 
 interface RefundSignatureRequest {
   user_fid: number;
@@ -11,11 +13,8 @@ interface RefundSignatureRequest {
  * POST /api/ideas/[id]/refund-signature
  *
  * Get a signed authorization to claim refunds for a specific idea.
- * This endpoint calculates the cumulative refund amount for the user
- * and signs it for the on-chain claim.
- *
- * Note: The cumulative amount includes ALL refund-eligible funding by this FID,
- * not just for this specific idea. The contract tracks by FID globally.
+ * This endpoint calculates the refund amount for the user's funding
+ * on THIS specific idea only.
  */
 export async function POST(
   request: NextRequest,
@@ -29,6 +28,12 @@ export async function POST(
   }
 
   try {
+    // Validate authentication
+    const auth = await validateAuth(request);
+    if (!auth.authenticated || !auth.fid) {
+      return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+    }
+
     const body = (await request.json()) as RefundSignatureRequest;
 
     if (!body.user_fid) {
@@ -36,6 +41,12 @@ export async function POST(
         { error: "Missing required field: user_fid" },
         { status: 400 }
       );
+    }
+
+    // Verify authenticated user matches requested FID
+    const fidError = validateFidMatch(auth.fid, body.user_fid);
+    if (fidError) {
+      return NextResponse.json({ error: fidError }, { status: 403 });
     }
 
     if (!body.recipient || !body.recipient.startsWith("0x")) {
@@ -59,13 +70,9 @@ export async function POST(
       return NextResponse.json({ error: "Idea not found" }, { status: 404 });
     }
 
-    // Check if idea is refund-eligible (30+ days of inactivity)
+    // Check if idea is refund-eligible (REFUND_DELAY_DAYS of inactivity)
     const lastActivity = new Date(idea.updated_at || idea.created_at);
     const daysSinceActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
-
-    // Allow bypassing time check on testnet for testing
-    const skipTimeCheck = process.env.SKIP_REFUND_DELAY === "true" &&
-                          process.env.NEXT_PUBLIC_CHAIN_ID === "84532";
 
     if (idea.status !== "open") {
       return NextResponse.json(
@@ -74,28 +81,26 @@ export async function POST(
       );
     }
 
-    if (daysSinceActivity < 30 && !skipTimeCheck) {
+    // REFUND_DELAY_DAYS is 0 when SKIP_REFUND_DELAY is set on testnet
+    if (daysSinceActivity < REFUND_DELAY_DAYS) {
       return NextResponse.json(
         {
-          error: "Refunds are only available after 30 days of inactivity",
+          error: `Refunds are only available after ${REFUND_DELAY_DAYS} days of inactivity`,
           days_since_activity: Math.floor(daysSinceActivity),
-          days_remaining: Math.ceil(30 - daysSinceActivity),
+          days_remaining: Math.ceil(REFUND_DELAY_DAYS - daysSinceActivity),
         },
         { status: 400 }
       );
     }
 
-    // Get ALL funding by this user for refund-eligible ideas
-    // The contract uses cumulative amounts by FID, so we sum up all eligible refunds
+    // Get funding by this user for THIS specific idea only
+    // IMPORTANT: Exclude already-refunded funding records
     const { data: eligibleFunding, error: fundingError } = await supabase
       .from("funding")
-      .select(`
-        id,
-        amount,
-        idea_id,
-        ideas!inner(status, updated_at, created_at)
-      `)
-      .eq("funder_fid", body.user_fid);
+      .select("id, amount")
+      .eq("funder_fid", body.user_fid)
+      .eq("idea_id", ideaId) // Only this idea
+      .is("refunded_at", null); // Only un-refunded
 
     if (fundingError) {
       console.error("Error fetching funding:", fundingError);
@@ -105,42 +110,71 @@ export async function POST(
       );
     }
 
-    // Filter to only refund-eligible ideas (open + 30+ days inactive)
-    const now = Date.now();
-    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-
-    const refundEligible = (eligibleFunding || []).filter((f) => {
-      const ideaInfo = f.ideas as unknown as {
-        status: string;
-        updated_at: string | null;
-        created_at: string;
-      };
-      if (ideaInfo.status !== "open") return false;
-
-      // Skip time check on testnet if flag is set
-      if (skipTimeCheck) return true;
-
-      const lastUpdate = new Date(ideaInfo.updated_at || ideaInfo.created_at);
-      return now - lastUpdate.getTime() >= THIRTY_DAYS_MS;
-    });
-
-    // Calculate cumulative refund amount
-    const cumulativeRefundUsdc = refundEligible.reduce(
+    // Calculate refund amount for this idea
+    const thisIdeaRefundUsdc = (eligibleFunding || []).reduce(
       (sum, f) => sum + Number(f.amount),
       0
     );
 
-    if (cumulativeRefundUsdc <= 0) {
+    if (thisIdeaRefundUsdc <= 0) {
       return NextResponse.json(
-        { error: "No refund available for this user" },
+        { error: "No refund available for this user on this idea" },
         { status: 400 }
       );
     }
 
-    // Convert to USDC base units (6 decimals)
-    const cumulativeAmount = usdcToBaseUnits(cumulativeRefundUsdc);
+    // SECURITY: To prevent double-claims if record-refund is skipped,
+    // calculate TOTAL eligible refunds across ALL refund-eligible ideas
+    // and compare against on-chain lastClaimedRefund
+    const { data: allEligibleFunding, error: allFundingError } = await supabase
+      .from("funding")
+      .select("amount, ideas!inner(status, updated_at, created_at)")
+      .eq("funder_fid", body.user_fid)
+      .is("refunded_at", null)
+      .eq("ideas.status", "open");
 
-    // Sign the claim
+    if (allFundingError) {
+      console.error("Error fetching all funding:", allFundingError);
+      return NextResponse.json(
+        { error: "Failed to calculate total eligible refunds" },
+        { status: 500 }
+      );
+    }
+
+    // Filter to only ideas that are refund-eligible (inactive for REFUND_DELAY_DAYS)
+    const totalEligibleUsdc = (allEligibleFunding || []).reduce((sum, f) => {
+      const ideaInfo = f.ideas as unknown as { status: string; updated_at: string; created_at: string };
+      const lastActivity = new Date(ideaInfo.updated_at || ideaInfo.created_at);
+      const daysSince = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSince >= REFUND_DELAY_DAYS) {
+        return sum + Number(f.amount);
+      }
+      return sum;
+    }, 0);
+
+    // Convert to base units
+    const totalEligibleBaseUnits = usdcToBaseUnits(totalEligibleUsdc);
+
+    // Query on-chain state for cumulative amount already claimed
+    const lastClaimed = await getLastClaimedRefund(BigInt(body.user_fid));
+
+    // CRITICAL: Compute new cumulative as max(lastClaimed, totalEligible)
+    // This ensures we never sign for less than already claimed (which would fail)
+    // and never sign for more than total eligible (prevents over-claiming)
+    const cumulativeAmount = totalEligibleBaseUnits > lastClaimed
+      ? totalEligibleBaseUnits
+      : lastClaimed;
+
+    // Calculate actual delta user will receive
+    const deltaAmount = cumulativeAmount - lastClaimed;
+    if (deltaAmount <= 0n) {
+      return NextResponse.json(
+        { error: "No new refunds available - already claimed on-chain" },
+        { status: 400 }
+      );
+    }
+
+    // Sign the claim with the cumulative amount (last claimed + new)
     const signedClaim = await signRefundClaim({
       fid: BigInt(body.user_fid),
       recipientAddress: body.recipient,
@@ -151,15 +185,13 @@ export async function POST(
       success: true,
       fid: body.user_fid,
       recipient: body.recipient,
+      ideaId,
       cumulativeAmount: signedClaim.cumAmt,
-      cumulativeAmountUsdc: cumulativeRefundUsdc,
+      deltaAmount: deltaAmount.toString(),
+      deltaAmountUsdc: Number(deltaAmount) / 1_000_000,
+      thisIdeaRefundUsdc,
       deadline: signedClaim.deadline,
       signature: signedClaim.signature,
-      // Include breakdown for transparency
-      eligibleIdeas: refundEligible.map((f) => ({
-        idea_id: f.idea_id,
-        amount: Number(f.amount),
-      })),
     });
   } catch (error) {
     console.error("Refund signature error:", error);

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { setUserNotificationDetails } from "~/lib/kv";
 import { sendMiniAppNotification } from "~/lib/notifs";
 import { sendNeynarMiniAppNotification } from "~/lib/neynar";
+import { validateAuth, validateFidMatch } from "~/lib/auth";
 
 const requestSchema = z.object({
   fid: z.number(),
@@ -11,6 +12,12 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Validate authentication
+  const auth = await validateAuth(request);
+  if (!auth.authenticated || !auth.fid) {
+    return Response.json({ success: false, error: auth.error || "Unauthorized" }, { status: 401 });
+  }
+
   // If Neynar is enabled, we don't need to store notification details
   // as they will be managed by Neynar's system
   const neynarEnabled = process.env.NEYNAR_API_KEY && process.env.NEYNAR_CLIENT_ID;
@@ -23,6 +30,12 @@ export async function POST(request: NextRequest) {
       { success: false, errors: requestBody.error.errors },
       { status: 400 }
     );
+  }
+
+  // Verify authenticated user matches requested FID
+  const fidError = validateFidMatch(auth.fid, requestBody.data.fid);
+  if (fidError) {
+    return Response.json({ success: false, error: fidError }, { status: 403 });
   }
 
   // Only store notification details if not using Neynar

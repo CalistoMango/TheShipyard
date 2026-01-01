@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import type { DbIdea, DbUser, DbFunding, Idea, FundingEntry, WinningBuild } from "~/lib/types";
+import { REFUND_DELAY_DAYS } from "~/lib/constants";
 
 interface IdeaDetailResponse {
   idea: Idea;
@@ -49,11 +50,12 @@ export async function GET(
 
     const row = ideaData as DbIdea & { users: DbUser | null };
 
-    // Fetch funding history with funder info
+    // Fetch funding history with funder info (only non-refunded)
     const { data: fundingData, error: fundingError } = await supabase
       .from("funding")
       .select("*, users!funder_fid(username, display_name)")
       .eq("idea_id", ideaId)
+      .is("refunded_at", null) // Only show non-refunded funding
       .order("created_at", { ascending: false })
       .limit(10);
 
@@ -61,11 +63,20 @@ export async function GET(
       console.error("Error fetching funding:", fundingError);
     }
 
-    // Count unique funders
+    // Count unique funders (only non-refunded)
     const { count: funderCount } = await supabase
       .from("funding")
       .select("funder_fid", { count: "exact", head: true })
-      .eq("idea_id", ideaId);
+      .eq("idea_id", ideaId)
+      .is("refunded_at", null);
+
+    // Calculate refund eligibility (REFUND_DELAY_DAYS since last activity, idea must be open)
+    let refundAvailable = false;
+    if (row.status === "open") {
+      const lastActivity = new Date(row.updated_at || row.created_at);
+      const daysSinceActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
+      refundAvailable = daysSinceActivity >= REFUND_DELAY_DAYS;
+    }
 
     // Transform idea
     const idea: Idea = {
@@ -84,6 +95,7 @@ export async function GET(
       related_casts: row.related_casts || [],
       solution_url: row.solution_url,
       created_at: row.created_at,
+      refund_available: refundAvailable,
     };
 
     // Fetch winning build if idea is completed (via build/vote flow)

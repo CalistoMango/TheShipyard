@@ -7,6 +7,8 @@ const NEYNAR_WEBHOOK_SECRET = process.env.NEYNAR_WEBHOOK_SECRET;
 const APP_URL = process.env.NEXT_PUBLIC_URL || "https://the-shipyard.vercel.app";
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY;
 const NEYNAR_AGENT_SIGNER_UUID = process.env.NEYNAR_AGENT_SIGNER_UUID;
+// Internal secret for webhook -> ingest calls
+const INGEST_SECRET = process.env.INGEST_SECRET;
 
 // Detect @theshipyard mentions (case insensitive)
 const MENTION_PATTERN = /@theshipyard\b/i;
@@ -191,6 +193,7 @@ export async function POST(request: NextRequest) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(INGEST_SECRET && { "x-ingest-secret": INGEST_SECRET }),
         },
         body: JSON.stringify({
           cast_hash: parentCast.hash,
@@ -254,6 +257,7 @@ export async function POST(request: NextRequest) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(INGEST_SECRET && { "x-ingest-secret": INGEST_SECRET }),
         },
         body: JSON.stringify({
           cast_hash: cast.hash,
@@ -317,6 +321,7 @@ export async function POST(request: NextRequest) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(INGEST_SECRET && { "x-ingest-secret": INGEST_SECRET }),
       },
       body: JSON.stringify({
         cast_hash: cast.hash,

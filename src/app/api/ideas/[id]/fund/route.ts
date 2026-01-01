@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { fetchUserInfo } from "~/lib/neynar";
+import { validateAuth, validateFidMatch } from "~/lib/auth";
+import { verifyFundingTransaction } from "~/lib/vault-signer";
 
 interface FundRequest {
   user_fid: number;
@@ -27,6 +29,12 @@ export async function POST(
   }
 
   try {
+    // Validate authentication
+    const auth = await validateAuth(request);
+    if (!auth.authenticated || !auth.fid) {
+      return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+    }
+
     const body = (await request.json()) as FundRequest;
 
     if (!body.user_fid) {
@@ -34,6 +42,12 @@ export async function POST(
         { error: "Missing required field: user_fid" },
         { status: 400 }
       );
+    }
+
+    // Verify authenticated user matches requested FID
+    const fidError = validateFidMatch(auth.fid, body.user_fid);
+    if (fidError) {
+      return NextResponse.json({ error: fidError }, { status: 403 });
     }
 
     if (!body.amount || body.amount < MIN_FUNDING_AMOUNT) {
@@ -94,21 +108,72 @@ export async function POST(
       }
     }
 
-    // On-chain funding: tx_hash is provided, no balance check needed
-    // The funds were already transferred on-chain via the vault contract
+    // SECURITY: Verify on-chain transaction if tx_hash is provided
+    // This prevents forged funding amounts
+    let verifiedAmount = body.amount;
+    if (body.tx_hash) {
+      // CRITICAL: Check for tx_hash replay - prevent same tx from being used twice
+      const { data: existingFunding } = await supabase
+        .from("funding")
+        .select("id")
+        .eq("tx_hash", body.tx_hash)
+        .single();
 
-    // Create funding record (immutable audit log)
+      if (existingFunding) {
+        return NextResponse.json(
+          { error: "Transaction has already been recorded" },
+          { status: 409 }
+        );
+      }
+
+      const verification = await verifyFundingTransaction(
+        body.tx_hash,
+        body.user_fid,
+        ideaId
+      );
+
+      if (!verification.verified) {
+        return NextResponse.json(
+          { error: verification.error || "Transaction verification failed" },
+          { status: 400 }
+        );
+      }
+
+      // Use the on-chain verified amount (in USDC base units -> convert to USDC)
+      if (verification.amount > 0n) {
+        verifiedAmount = Number(verification.amount) / 1_000_000;
+        console.log(`Verified funding: client=${body.amount}, on-chain=${verifiedAmount}`);
+      }
+    } else {
+      // No tx_hash - this is a legacy flow or testing, require VAULT_ADDRESS not set
+      if (process.env.VAULT_ADDRESS) {
+        return NextResponse.json(
+          { error: "tx_hash is required for on-chain funding" },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Create funding record with VERIFIED amount
     const { data: fundingRecord, error: fundingError } = await supabase
       .from("funding")
       .insert({
         idea_id: ideaId,
         funder_fid: body.user_fid,
-        amount: body.amount,
+        amount: verifiedAmount, // Use verified amount, not client-provided
+        tx_hash: body.tx_hash || null,
       })
       .select("id, amount, created_at")
       .single();
 
     if (fundingError) {
+      // Handle unique constraint violation (race condition on tx_hash)
+      if (fundingError.code === "23505") {
+        return NextResponse.json(
+          { error: "Transaction has already been recorded" },
+          { status: 409 }
+        );
+      }
       console.error("Error creating funding record:", fundingError);
       return NextResponse.json(
         { error: "Failed to create funding record" },
@@ -116,24 +181,9 @@ export async function POST(
       );
     }
 
-    // Update idea pool total
-    const newPoolTotal = Number(idea.pool) + body.amount;
-
-    // Check if race mode should be triggered
-    const wasUnderThreshold = Number(idea.pool) < RACE_MODE_THRESHOLD;
-    const isNowOverThreshold = newPoolTotal >= RACE_MODE_THRESHOLD;
-    const triggersRaceMode = wasUnderThreshold && isNowOverThreshold;
-
-    // Update pool and potentially status
-    const updateData: { pool: number; status?: string } = { pool: newPoolTotal };
-    if (triggersRaceMode) {
-      updateData.status = "voting"; // Race mode = voting status
-    }
-
-    const { error: poolError } = await supabase
-      .from("ideas")
-      .update(updateData)
-      .eq("id", ideaId);
+    // ATOMIC: Use RPC to increment pool (prevents race conditions)
+    const { data: newPoolTotal, error: poolError } = await supabase
+      .rpc("increment_pool", { idea_id_param: ideaId, amount_param: verifiedAmount });
 
     if (poolError) {
       console.error("Error updating pool:", poolError);
@@ -141,11 +191,26 @@ export async function POST(
       // In production, this should trigger an alert for manual reconciliation
     }
 
+    const poolValue = Number(newPoolTotal) || Number(idea.pool) + verifiedAmount;
+
+    // Check if race mode should be triggered
+    const wasUnderThreshold = Number(idea.pool) < RACE_MODE_THRESHOLD;
+    const isNowOverThreshold = poolValue >= RACE_MODE_THRESHOLD;
+    const triggersRaceMode = wasUnderThreshold && isNowOverThreshold;
+
+    // Update status if race mode triggered
+    if (triggersRaceMode) {
+      await supabase
+        .from("ideas")
+        .update({ status: "voting" })
+        .eq("id", ideaId);
+    }
+
     return NextResponse.json({
       status: "funded",
       funding_id: fundingRecord.id,
-      amount: body.amount,
-      new_pool_total: newPoolTotal,
+      amount: verifiedAmount, // Return verified amount
+      new_pool_total: poolValue,
       race_mode_triggered: triggersRaceMode,
     });
   } catch (error) {
@@ -183,7 +248,7 @@ export async function GET(
       return NextResponse.json({ error: "Idea not found" }, { status: 404 });
     }
 
-    // Get funding history with user info
+    // Get funding history with user info (only non-refunded funding)
     const { data: funding, error: fundingError } = await supabase
       .from("funding")
       .select(
@@ -192,6 +257,7 @@ export async function GET(
         amount,
         created_at,
         funder_fid,
+        refunded_at,
         users:funder_fid (
           username,
           display_name
@@ -199,6 +265,7 @@ export async function GET(
       `
       )
       .eq("idea_id", ideaId)
+      .is("refunded_at", null) // Only show non-refunded funding
       .order("created_at", { ascending: false });
 
     if (fundingError) {

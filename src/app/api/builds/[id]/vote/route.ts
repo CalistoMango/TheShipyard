@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { fetchUserInfo } from "~/lib/neynar";
+import { validateAuth, validateFidMatch } from "~/lib/auth";
 
 interface VoteRequest {
   voter_fid: number;
@@ -15,6 +16,12 @@ export async function POST(
   const { id: buildId } = await params;
 
   try {
+    // Validate authentication
+    const auth = await validateAuth(request);
+    if (!auth.authenticated || !auth.fid) {
+      return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+    }
+
     const body = (await request.json()) as VoteRequest;
 
     if (!body.voter_fid || typeof body.approved !== "boolean") {
@@ -22,6 +29,12 @@ export async function POST(
         { error: "Missing required fields: voter_fid, approved" },
         { status: 400 }
       );
+    }
+
+    // Verify authenticated user matches requested voter FID
+    const fidError = validateFidMatch(auth.fid, body.voter_fid);
+    if (fidError) {
+      return NextResponse.json({ error: fidError }, { status: 403 });
     }
 
     const supabase = createServerClient();

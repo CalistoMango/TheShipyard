@@ -3,6 +3,7 @@ import { createServerClient } from "~/lib/supabase";
 import { getAdminFids } from "~/lib/admin";
 import { sendPushNotification } from "~/lib/notifications";
 import { fetchUserInfo } from "~/lib/neynar";
+import { validateAuth, validateFidMatch } from "~/lib/auth";
 
 // 24 hour cooldown after rejection
 const REJECTION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -17,6 +18,12 @@ interface SubmitBuildRequest {
 // POST /api/builds - Submit a build for an idea
 export async function POST(request: NextRequest) {
   try {
+    // Validate authentication
+    const auth = await validateAuth(request);
+    if (!auth.authenticated || !auth.fid) {
+      return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+    }
+
     const body = (await request.json()) as SubmitBuildRequest;
 
     if (!body.idea_id || !body.builder_fid || !body.url) {
@@ -24,6 +31,12 @@ export async function POST(request: NextRequest) {
         { error: "Missing required fields: idea_id, builder_fid, url" },
         { status: 400 }
       );
+    }
+
+    // Verify authenticated user matches requested builder FID
+    const fidError = validateFidMatch(auth.fid, body.builder_fid);
+    if (fidError) {
+      return NextResponse.json({ error: fidError }, { status: 403 });
     }
 
     const supabase = createServerClient();

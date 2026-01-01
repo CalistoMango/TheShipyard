@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useMiniApp } from "@neynar/react";
 import sdk from "@farcaster/miniapp-sdk";
+import { authPost, getAuthHeaders } from "~/lib/api";
 
 interface PendingBuild {
   id: string;
@@ -62,7 +63,8 @@ export function AdminTab() {
     if (!userFid) return;
 
     try {
-      const res = await fetch(`/api/admin/dashboard?fid=${userFid}`);
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/admin/dashboard`, { headers });
       if (res.status === 403) {
         setError("Access denied. You are not an admin.");
         return;
@@ -89,11 +91,7 @@ export function AdminTab() {
     if (!userFid) return;
     setActionLoading(buildId);
     try {
-      const res = await fetch(`/api/admin/dashboard/builds/${buildId}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ admin_fid: userFid }),
-      });
+      const res = await authPost(`/api/admin/dashboard/builds/${buildId}/approve`, {});
       if (res.ok) {
         fetchData();
       } else {
@@ -111,11 +109,7 @@ export function AdminTab() {
     if (!userFid) return;
     setActionLoading(buildId);
     try {
-      const res = await fetch(`/api/admin/dashboard/builds/${buildId}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ admin_fid: userFid }),
-      });
+      const res = await authPost(`/api/admin/dashboard/builds/${buildId}/reject`, {});
       if (res.ok) {
         fetchData();
       } else {
@@ -133,11 +127,7 @@ export function AdminTab() {
     if (!userFid) return;
     setActionLoading(reportId);
     try {
-      const res = await fetch(`/api/admin/dashboard/reports/${reportId}/review`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ admin_fid: userFid, action: "approve" }),
-      });
+      const res = await authPost(`/api/admin/dashboard/reports/${reportId}/review`, { action: "approve" });
       if (res.ok) {
         fetchData();
       } else {
@@ -155,11 +145,7 @@ export function AdminTab() {
     if (!userFid) return;
     setActionLoading(reportId);
     try {
-      const res = await fetch(`/api/admin/dashboard/reports/${reportId}/review`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ admin_fid: userFid, action: "dismiss" }),
-      });
+      const res = await authPost(`/api/admin/dashboard/reports/${reportId}/review`, { action: "dismiss" });
       if (res.ok) {
         fetchData();
       } else {

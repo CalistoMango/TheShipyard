@@ -8,6 +8,7 @@ export type Category = "games" | "tools" | "social" | "defi" | "content" | "othe
 export type WithdrawalStatus = "pending" | "completed" | "failed";
 export type PayoutType = "builder" | "submitter" | "platform";
 export type ReportStatus = "pending" | "approved" | "dismissed";
+export type ClaimType = "refund" | "reward";
 
 // ===========================================
 // DATABASE ROW TYPES
@@ -21,6 +22,10 @@ export interface DbUser {
   wallet_address: string | null;
   balance: number;
   streak: number;
+  claimed_rewards: number; // Cumulative rewards claimed (USDC)
+  claimed_refunds: number; // Cumulative refunds claimed (USDC)
+  last_reward_tx_hash: string | null; // Last reward claim tx (replay protection)
+  last_refund_tx_hash: string | null; // Last refund claim tx (replay protection)
   created_at: string;
   updated_at: string;
 }
@@ -57,6 +62,9 @@ export interface DbIdea {
   pool: number;
   upvote_count: number;
   solution_url: string | null;
+  builder_reward_claimed: boolean; // True when builder has claimed their 85%
+  submitter_reward_claimed: boolean; // True when submitter has claimed their 5%
+  reward_claim_tx_hash: string | null; // Tx hash when rewards were claimed (replay protection)
   created_at: string;
   updated_at: string;
 }
@@ -66,6 +74,9 @@ export interface DbFunding {
   idea_id: number;
   funder_fid: number;
   amount: number;
+  tx_hash: string | null; // Funding transaction hash (unique, for replay protection)
+  refunded_at: string | null; // When the funding was refunded (null = not refunded)
+  refund_tx_hash: string | null; // Refund transaction hash (for replay protection)
   created_at: string;
 }
 
@@ -115,6 +126,14 @@ export interface DbReport {
   note: string | null;
   status: ReportStatus;
   reviewed_at: string | null;
+  created_at: string;
+}
+
+export interface DbUsedClaimTx {
+  tx_hash: string; // Primary key - prevents tx replay
+  user_fid: number;
+  claim_type: ClaimType;
+  amount: number; // Amount claimed in USDC
   created_at: string;
 }
 

@@ -1,14 +1,37 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getNeynarClient } from '~/lib/neynar';
 import { mnemonicToAccount } from 'viem/accounts';
 import {
   SIGNED_KEY_REQUEST_TYPE,
   SIGNED_KEY_REQUEST_VALIDATOR_EIP_712_DOMAIN,
 } from '~/lib/constants';
+import { validateAuth, isAdminFid } from '~/lib/auth';
 
 const postRequiredFields = ['signerUuid', 'publicKey'];
 
-export async function POST(request: Request) {
+/**
+ * POST /api/auth/signer/signed_key
+ *
+ * SECURITY: This endpoint uses the app's SEED_PHRASE to sign keys.
+ * Access is restricted to authenticated admin users only.
+ */
+export async function POST(request: NextRequest) {
+  // CRITICAL: Require admin authentication
+  const auth = await validateAuth(request);
+  if (!auth.authenticated || !auth.fid) {
+    return NextResponse.json(
+      { error: 'Authentication required' },
+      { status: 401 }
+    );
+  }
+
+  if (!isAdminFid(auth.fid)) {
+    return NextResponse.json(
+      { error: 'Admin access required' },
+      { status: 403 }
+    );
+  }
+
   const body = await request.json();
 
   // Validate required fields

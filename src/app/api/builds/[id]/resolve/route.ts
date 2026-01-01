@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT, PLATFORM_FEE_PERCENT } from "~/lib/constants";
+import { validateAuth, isAdminFid } from "~/lib/auth";
 
 // Payout split from constants (as decimals for calculation)
 const PAYOUT_SPLIT = {
@@ -20,6 +21,15 @@ export async function POST(
   const { id: buildId } = await params;
 
   try {
+    // Validate admin authentication
+    const auth = await validateAuth(request);
+    if (!auth.authenticated || !auth.fid) {
+      return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+    }
+    if (!isAdminFid(auth.fid)) {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+
     const supabase = createServerClient();
 
     // Get build with idea info
@@ -158,9 +168,12 @@ export async function POST(
       await supabase.from("builds").update({ status: "approved" }).eq("id", buildId);
 
       // Update idea status to completed
+      // NOTE: Do NOT zero the pool here - the pool value is needed for
+      // claim-reward calculations. The on-chain vault still holds the funds.
+      // builder_reward_claimed and submitter_reward_claimed flags prevent double-claiming.
       await supabase
         .from("ideas")
-        .update({ status: "completed", pool: 0 })
+        .update({ status: "completed" })
         .eq("id", build.idea_id);
 
       return NextResponse.json({

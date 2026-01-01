@@ -3,6 +3,7 @@ import { createServerClient } from "~/lib/supabase";
 import { getAdminFids } from "~/lib/admin";
 import { sendPushNotification } from "~/lib/notifications";
 import { fetchUserInfo } from "~/lib/neynar";
+import { validateAuth, validateFidMatch } from "~/lib/auth";
 
 interface ReportRequest {
   url: string;
@@ -16,6 +17,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Validate authentication
+    const auth = await validateAuth(request);
+    if (!auth.authenticated || !auth.fid) {
+      return NextResponse.json({ data: null, error: auth.error || "Unauthorized" }, { status: 401 });
+    }
+
     const { id } = await params;
     const ideaId = parseInt(id, 10);
 
@@ -34,6 +41,12 @@ export async function POST(
         { data: null, error: "url and reporter_fid are required" },
         { status: 400 }
       );
+    }
+
+    // Verify authenticated user matches requested reporter FID
+    const fidError = validateFidMatch(auth.fid, body.reporter_fid);
+    if (fidError) {
+      return NextResponse.json({ data: null, error: fidError }, { status: 403 });
     }
 
     // Basic URL validation

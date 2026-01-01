@@ -10,6 +10,7 @@ import { ProfileLink } from "~/components/ui/ProfileLink";
 import { CastLink } from "~/components/ui/CastLink";
 import { APP_URL, BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT } from "~/lib/constants";
 import { USDC_ADDRESS, VAULT_ADDRESS, erc20Abi, vaultAbi, USDC_DECIMALS, ideaToProjectId, CHAIN_ID } from "~/lib/contracts";
+import { authPost } from "~/lib/api";
 
 interface IdeaDetailProps {
   idea: Idea;
@@ -225,11 +226,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
     setActionError(null);
 
     try {
-      const res = await fetch(`/api/ideas/${initialIdea.id}/upvote`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_fid: userFid }),
-      });
+      const res = await authPost(`/api/ideas/${initialIdea.id}/upvote`, { user_fid: userFid });
 
       const data = await res.json();
 
@@ -354,14 +351,10 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         try {
           console.log("Recording funding in DB...", { ideaId: initialIdea.id, amount: fundAmount, txHash: fundTxHash });
           // Record the on-chain funding in the database
-          const fundRes = await fetch(`/api/ideas/${initialIdea.id}/fund`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              user_fid: userFid,
-              amount: parseFloat(fundAmount),
-              tx_hash: fundTxHash,
-            }),
+          const fundRes = await authPost(`/api/ideas/${initialIdea.id}/fund`, {
+            user_fid: userFid,
+            amount: parseFloat(fundAmount),
+            tx_hash: fundTxHash,
           });
 
           if (!fundRes.ok) {
@@ -406,14 +399,10 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
     setActionError(null);
 
     try {
-      // Step 1: Request signature from backend
-      const signatureRes = await fetch(`/api/ideas/${initialIdea.id}/refund-signature`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_fid: userFid,
-          recipient: address,
-        }),
+      // Step 1: Request signature from backend (authenticated)
+      const signatureRes = await authPost(`/api/ideas/${initialIdea.id}/refund-signature`, {
+        user_fid: userFid,
+        recipient: address,
       });
 
       if (!signatureRes.ok) {
@@ -421,7 +410,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         throw new Error(data.error || "Failed to get refund signature");
       }
 
-      const { cumulativeAmount, deadline, signature } = await signatureRes.json();
+      const { cumulativeAmount, cumulativeAmountUsdc, deadline, signature } = await signatureRes.json();
 
       // Step 2: Call claimRefund on contract
       const withdrawTx = await writeContractAsync({
@@ -434,14 +423,24 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
 
       console.log("Withdraw tx:", withdrawTx);
 
-      // Refresh detail data after a delay
-      setTimeout(async () => {
-        const refreshRes = await fetch(`/api/ideas/${initialIdea.id}`);
-        if (refreshRes.ok) {
-          const refreshData = await refreshRes.json();
-          setDetailData(refreshData.data);
-        }
-      }, 5000);
+      // Step 3: CRITICAL - Record the refund in the database to prevent double-claims (authenticated)
+      const recordRes = await authPost(`/api/ideas/${initialIdea.id}/record-refund`, {
+        user_fid: userFid,
+        tx_hash: withdrawTx,
+        amount: cumulativeAmountUsdc,
+      });
+
+      if (!recordRes.ok) {
+        console.error("Failed to record refund in database:", await recordRes.json());
+        // Don't throw - the on-chain tx succeeded
+      }
+
+      // Refresh detail data
+      const refreshRes = await fetch(`/api/ideas/${initialIdea.id}`);
+      if (refreshRes.ok) {
+        const refreshData = await refreshRes.json();
+        setDetailData(refreshData.data);
+      }
     } catch (error) {
       console.error("Withdraw error:", error);
       setActionError(error instanceof Error ? error.message : "Failed to withdraw");
@@ -465,15 +464,11 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
     setActionError(null);
 
     try {
-      const res = await fetch("/api/builds", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          idea_id: initialIdea.id,
-          builder_fid: userFid,
-          url: buildUrl,
-          description: buildDescription || undefined,
-        }),
+      const res = await authPost("/api/builds", {
+        idea_id: initialIdea.id,
+        builder_fid: userFid,
+        url: buildUrl,
+        description: buildDescription || undefined,
       });
 
       const data = await res.json();
@@ -509,14 +504,10 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
     setActionError(null);
 
     try {
-      const res = await fetch(`/api/ideas/${initialIdea.id}/report`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: reportUrl,
-          note: reportNote || undefined,
-          reporter_fid: userFid,
-        }),
+      const res = await authPost(`/api/ideas/${initialIdea.id}/report`, {
+        url: reportUrl,
+        note: reportNote || undefined,
+        reporter_fid: userFid,
       });
 
       const data = await res.json();

@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-import { isAdminFid } from "~/lib/admin";
+import { validateAuth, isAdminFid } from "~/lib/auth";
 
-// GET /api/admin/dashboard - Get admin dashboard data (FID-based auth)
+// GET /api/admin/dashboard - Get admin dashboard data (JWT-based auth)
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const fid = parseInt(searchParams.get("fid") || "0", 10);
-
-  if (!fid || !isAdminFid(fid)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  // Validate admin authentication via JWT
+  const auth = await validateAuth(request);
+  if (!auth.authenticated || !auth.fid) {
+    return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+  }
+  if (!isAdminFid(auth.fid)) {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
   try {
