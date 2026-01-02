@@ -4,7 +4,6 @@ import {
   signRewardClaim,
   usdcToBaseUnits,
   calculatePayouts,
-  getLastClaimedReward,
 } from "~/lib/vault-signer";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
 
@@ -179,28 +178,14 @@ export async function POST(request: NextRequest) {
     }
 
     const totalEligibleUsdc = totalBuilderEligible + totalSubmitterEligible;
-    const totalEligibleBaseUnits = usdcToBaseUnits(totalEligibleUsdc);
+    const cumulativeAmount = usdcToBaseUnits(totalEligibleUsdc);
 
-    // Query on-chain state for cumulative amount already claimed
-    const lastClaimed = await getLastClaimedReward(BigInt(body.user_fid));
-
-    // CRITICAL: Compute new cumulative as max(lastClaimed, totalEligible)
-    // This ensures we never sign for less than already claimed (which would fail)
-    // and never sign for more than total eligible (prevents over-claiming)
-    const cumulativeAmount = totalEligibleBaseUnits > lastClaimed
-      ? totalEligibleBaseUnits
-      : lastClaimed;
-
-    // Calculate actual delta user will receive
-    const deltaAmount = cumulativeAmount - lastClaimed;
-    if (deltaAmount <= 0n) {
-      return NextResponse.json(
-        { error: "No new rewards available - already claimed on-chain" },
-        { status: 400 }
-      );
-    }
-
-    // Sign the claim with the cumulative amount (last claimed + new)
+    // Sign the claim with the cumulative amount from the database
+    // The contract will:
+    // 1. Verify cumAmt >= lastClaimedReward (can't go backwards)
+    // 2. Pay out delta = cumAmt - lastClaimedReward
+    // 3. Update lastClaimedReward = cumAmt
+    // If delta is 0, the contract call will succeed but transfer nothing
     const signedClaim = await signRewardClaim({
       fid: BigInt(body.user_fid),
       recipientAddress: body.recipient,
@@ -212,9 +197,7 @@ export async function POST(request: NextRequest) {
       fid: body.user_fid,
       recipient: body.recipient,
       cumulativeAmount: signedClaim.cumAmt,
-      cumulativeAmountUsdc: Number(cumulativeAmount) / 1_000_000,
-      deltaAmount: deltaAmount.toString(),
-      deltaAmountUsdc: Number(deltaAmount) / 1_000_000,
+      cumulativeAmountUsdc: totalEligibleUsdc,
       deadline: signedClaim.deadline,
       signature: signedClaim.signature,
       // Include breakdown for transparency
@@ -222,7 +205,6 @@ export async function POST(request: NextRequest) {
         builderRewards: builderRewardsUsdc,
         submitterRewards: submitterRewardsUsdc,
         dbUnclaimed: newRewardUsdc,
-        previouslyClaimed: Number(lastClaimed) / 1_000_000,
         builderProjects: builderBreakdown,
         submittedIdeas: submitterBreakdown,
       },

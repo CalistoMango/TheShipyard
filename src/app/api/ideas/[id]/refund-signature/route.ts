@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-import { signRefundClaim, usdcToBaseUnits, getLastClaimedRefund } from "~/lib/vault-signer";
+import { signRefundClaim, usdcToBaseUnits } from "~/lib/vault-signer";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
 import { REFUND_DELAY_DAYS } from "~/lib/constants";
 import { checkRefundEligibility } from "~/lib/refund";
@@ -128,61 +128,15 @@ export async function POST(
       );
     }
 
-    // SECURITY: To prevent double-claims if record-refund is skipped,
-    // calculate TOTAL eligible refunds across ALL refund-eligible ideas
-    // and compare against on-chain lastClaimedRefund
-    const { data: allEligibleFunding, error: allFundingError } = await supabase
-      .from("funding")
-      .select("amount, ideas!inner(status, updated_at, created_at)")
-      .eq("funder_fid", body.user_fid)
-      .is("refunded_at", null)
-      .eq("ideas.status", "open");
+    // Convert to base units - this is what the user is entitled to for THIS idea
+    const cumulativeAmount = usdcToBaseUnits(thisIdeaRefundUsdc);
 
-    if (allFundingError) {
-      console.error("Error fetching all funding:", allFundingError);
-      return NextResponse.json(
-        { error: "Failed to calculate total eligible refunds" },
-        { status: 500 }
-      );
-    }
-
-    // Filter to only ideas that are refund-eligible using centralized function
-    const totalEligibleUsdc = (allEligibleFunding || []).reduce((sum, f) => {
-      const ideaInfo = f.ideas as unknown as { status: string; updated_at: string; created_at: string };
-      const { eligible } = checkRefundEligibility({
-        status: ideaInfo.status,
-        updated_at: ideaInfo.updated_at,
-        created_at: ideaInfo.created_at,
-      });
-      if (eligible) {
-        return sum + Number(f.amount);
-      }
-      return sum;
-    }, 0);
-
-    // Convert to base units
-    const totalEligibleBaseUnits = usdcToBaseUnits(totalEligibleUsdc);
-
-    // Query on-chain state for cumulative amount already claimed
-    const lastClaimed = await getLastClaimedRefund(BigInt(body.user_fid));
-
-    // CRITICAL: Compute new cumulative as max(lastClaimed, totalEligible)
-    // This ensures we never sign for less than already claimed (which would fail)
-    // and never sign for more than total eligible (prevents over-claiming)
-    const cumulativeAmount = totalEligibleBaseUnits > lastClaimed
-      ? totalEligibleBaseUnits
-      : lastClaimed;
-
-    // Calculate actual delta user will receive
-    const deltaAmount = cumulativeAmount - lastClaimed;
-    if (deltaAmount <= 0n) {
-      return NextResponse.json(
-        { error: "No new refunds available - already claimed on-chain" },
-        { status: 400 }
-      );
-    }
-
-    // Sign the claim with the cumulative amount (last claimed + new)
+    // Sign the claim with the cumulative amount from the database
+    // The contract will:
+    // 1. Verify cumAmt >= lastClaimedRefund (can't go backwards)
+    // 2. Pay out delta = cumAmt - lastClaimedRefund
+    // 3. Update lastClaimedRefund = cumAmt
+    // If delta is 0, the contract call will succeed but transfer nothing
     const signedClaim = await signRefundClaim({
       fid: BigInt(body.user_fid),
       recipientAddress: body.recipient,
@@ -195,10 +149,7 @@ export async function POST(
       recipient: body.recipient,
       ideaId,
       cumulativeAmount: signedClaim.cumAmt,
-      cumulativeAmountUsdc: Number(cumulativeAmount) / 1_000_000, // Used by frontend for record-refund
-      deltaAmount: deltaAmount.toString(),
-      deltaAmountUsdc: Number(deltaAmount) / 1_000_000,
-      thisIdeaRefundUsdc,
+      cumulativeAmountUsdc: thisIdeaRefundUsdc,
       deadline: signedClaim.deadline,
       signature: signedClaim.signature,
     });

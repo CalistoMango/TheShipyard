@@ -14,11 +14,32 @@
  *   npx tsx scripts/db-snapshot.ts --reset-funding        # Clear funding/tx history only (keeps ideas, users, upvotes)
  *   npx tsx scripts/db-snapshot.ts --reset               # Reset ALL test data (DESTRUCTIVE!)
  *   npx tsx scripts/db-snapshot.ts --reset-funding --confirm  # Skip confirmation prompt
+ *
+ * Snapshot files are saved to _TEMP/ directory by default.
  */
 
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import * as fs from "fs";
+import * as path from "path";
+
+// Ensure _TEMP directory exists for snapshot files
+const TEMP_DIR = path.join(process.cwd(), "_TEMP");
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
+
+/**
+ * Resolve file path - if just a filename, put it in _TEMP/
+ */
+function resolveSnapshotPath(filePath: string): string {
+  // If it's already an absolute path or has directory separators, use as-is
+  if (path.isAbsolute(filePath) || filePath.includes("/") || filePath.includes("\\")) {
+    return filePath;
+  }
+  // Otherwise, put it in _TEMP/
+  return path.join(TEMP_DIR, filePath);
+}
 
 // Load environment variables from .env.local
 config({ path: ".env.local" });
@@ -434,7 +455,8 @@ async function main(): Promise<void> {
   const snapshot = await takeSnapshot(options);
 
   if (options.diffFile) {
-    const beforeData = fs.readFileSync(options.diffFile, "utf-8");
+    const diffPath = resolveSnapshotPath(options.diffFile);
+    const beforeData = fs.readFileSync(diffPath, "utf-8");
     const before = JSON.parse(beforeData) as Snapshot;
     compareSnapshots(before, snapshot);
   } else {
@@ -442,8 +464,9 @@ async function main(): Promise<void> {
   }
 
   if (options.saveFile) {
-    fs.writeFileSync(options.saveFile, JSON.stringify(snapshot, null, 2));
-    console.log(`\nSnapshot saved to: ${options.saveFile}`);
+    const savePath = resolveSnapshotPath(options.saveFile);
+    fs.writeFileSync(savePath, JSON.stringify(snapshot, null, 2));
+    console.log(`\nSnapshot saved to: ${savePath}`);
   }
 }
 

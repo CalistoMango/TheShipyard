@@ -43,3 +43,10 @@ next-env.d.ts
 #LLM
 .claude/
 .claude/*
+
+#Temporary Files
+_TEMP/
+_TEMP/*
+*-funding.json
+before-*.json
+after-*.json
