@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-import { signRefundClaim, usdcToBaseUnits } from "~/lib/vault-signer";
+import { signRefundClaim, usdcToBaseUnits, toProjectId, hasClaimedRefund } from "~/lib/vault-signer";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
 import { REFUND_DELAY_DAYS } from "~/lib/constants";
 import { checkRefundEligibility } from "~/lib/refund";
@@ -128,19 +128,31 @@ export async function POST(
       );
     }
 
-    // Convert to base units - this is what the user is entitled to for THIS idea
-    const cumulativeAmount = usdcToBaseUnits(thisIdeaRefundUsdc);
+    // Convert idea ID to bytes32 projectId for v2 contract
+    const projectId = toProjectId(ideaId);
 
-    // Sign the claim with the cumulative amount from the database
+    // Check if already claimed on-chain (v2: per-project tracking)
+    const alreadyClaimed = await hasClaimedRefund(projectId, BigInt(body.user_fid));
+    if (alreadyClaimed) {
+      return NextResponse.json(
+        { error: "Refund already claimed for this project" },
+        { status: 400 }
+      );
+    }
+
+    // Convert to base units - this is what the user is entitled to for THIS idea
+    const amount = usdcToBaseUnits(thisIdeaRefundUsdc);
+
+    // Sign the claim for this specific project (v2: per-project)
     // The contract will:
-    // 1. Verify cumAmt >= lastClaimedRefund (can't go backwards)
-    // 2. Pay out delta = cumAmt - lastClaimedRefund
-    // 3. Update lastClaimedRefund = cumAmt
-    // If delta is 0, the contract call will succeed but transfer nothing
+    // 1. Verify refundClaimed[projectId][fid] == false
+    // 2. Mark refundClaimed[projectId][fid] = true
+    // 3. Transfer the amount
     const signedClaim = await signRefundClaim({
+      projectId,
       fid: BigInt(body.user_fid),
       recipientAddress: body.recipient,
-      cumulativeAmount,
+      amount,
     });
 
     return NextResponse.json({
@@ -148,8 +160,9 @@ export async function POST(
       fid: body.user_fid,
       recipient: body.recipient,
       ideaId,
-      cumulativeAmount: signedClaim.cumAmt,
-      cumulativeAmountUsdc: thisIdeaRefundUsdc,
+      projectId: signedClaim.projectId,
+      amount: signedClaim.amount,
+      amountUsdc: thisIdeaRefundUsdc,
       deadline: signedClaim.deadline,
       signature: signedClaim.signature,
     });

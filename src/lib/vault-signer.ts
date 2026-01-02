@@ -1,13 +1,13 @@
 /**
- * Backend Signing Utility for ShipyardVault
+ * Backend Signing Utility for ShipyardVault v2
  *
- * Handles EIP-712 signature generation for refunds and rewards.
+ * Handles EIP-712 signature generation for per-project refunds and rewards.
  * Server-side only - uses PAYOUT_SIGNER_KEY from environment.
  */
 
 import { ethers } from "ethers";
 import { SUBMITTER_FEE_PERCENT, PLATFORM_FEE_PERCENT } from "./constants";
-import { vaultAbi } from "./contracts";
+import { vaultAbi, ideaToProjectId } from "./contracts";
 
 // Chain ID - Base Mainnet: 8453, Base Sepolia: 84532
 const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID) || 84532; // Default to Sepolia for testing
@@ -37,34 +37,35 @@ function getVaultContract(): ethers.Contract {
 }
 
 /**
- * Query on-chain lastClaimedRefund for a FID
- * This is the cumulative amount already claimed
+ * Convert idea ID to bytes32 projectId
  */
-export async function getLastClaimedRefund(fid: bigint): Promise<bigint> {
+export function toProjectId(ideaId: number): string {
+  return ideaToProjectId(ideaId);
+}
+
+/**
+ * Check if a refund has been claimed for a (projectId, fid) pair
+ */
+export async function hasClaimedRefund(projectId: string, fid: bigint): Promise<boolean> {
   try {
     const vault = getVaultContract();
-    const result = await vault.lastClaimedRefund(fid);
-    return BigInt(result.toString());
+    return await vault.hasClaimedRefund(projectId, fid);
   } catch (error) {
-    console.error("Error querying lastClaimedRefund:", error);
-    // Return 0 if vault doesn't exist or query fails
-    return 0n;
+    console.error("Error checking hasClaimedRefund:", error);
+    return false;
   }
 }
 
 /**
- * Query on-chain lastClaimedReward for a FID
- * This is the cumulative amount already claimed
+ * Check if a reward has been claimed for a (projectId, fid) pair
  */
-export async function getLastClaimedReward(fid: bigint): Promise<bigint> {
+export async function hasClaimedReward(projectId: string, fid: bigint): Promise<boolean> {
   try {
     const vault = getVaultContract();
-    const result = await vault.lastClaimedReward(fid);
-    return BigInt(result.toString());
+    return await vault.hasClaimedReward(projectId, fid);
   } catch (error) {
-    console.error("Error querying lastClaimedReward:", error);
-    // Return 0 if vault doesn't exist or query fails
-    return 0n;
+    console.error("Error checking hasClaimedReward:", error);
+    return false;
   }
 }
 
@@ -116,7 +117,7 @@ export async function verifyFundingTransaction(
           const logAmount = BigInt(parsed.args.amount.toString());
 
           // Convert expected idea ID to bytes32 for comparison
-          const expectedProjectId = `0x${expectedIdeaId.toString(16).padStart(64, '0')}`;
+          const expectedProjectId = toProjectId(expectedIdeaId);
 
           if (logFid === expectedFid && logProjectId.toLowerCase() === expectedProjectId.toLowerCase()) {
             return { verified: true, amount: logAmount };
@@ -135,11 +136,12 @@ export async function verifyFundingTransaction(
 }
 
 /**
- * Verify a refund claim transaction on-chain
+ * Verify a refund claim transaction on-chain (v2: per-project)
  */
 export async function verifyRefundTransaction(
   txHash: string,
-  expectedFid: number
+  expectedFid: number,
+  expectedProjectId?: string
 ): Promise<{ verified: boolean; amount: bigint; error?: string }> {
   try {
     const provider = getProvider();
@@ -173,11 +175,15 @@ export async function verifyRefundTransaction(
         });
 
         if (parsed) {
+          const logProjectId = parsed.args.projectId as string;
           const logFid = Number(parsed.args.fid);
-          const delta = BigInt(parsed.args.delta.toString());
+          const amount = BigInt(parsed.args.amount.toString());
 
+          // Match FID and optionally projectId
           if (logFid === expectedFid) {
-            return { verified: true, amount: delta };
+            if (!expectedProjectId || logProjectId.toLowerCase() === expectedProjectId.toLowerCase()) {
+              return { verified: true, amount };
+            }
           }
         }
       } catch {
@@ -193,11 +199,12 @@ export async function verifyRefundTransaction(
 }
 
 /**
- * Verify a reward claim transaction on-chain
+ * Verify a reward claim transaction on-chain (v2: per-project)
  */
 export async function verifyRewardTransaction(
   txHash: string,
-  expectedFid: number
+  expectedFid: number,
+  expectedProjectId?: string
 ): Promise<{ verified: boolean; amount: bigint; error?: string }> {
   try {
     const provider = getProvider();
@@ -231,11 +238,15 @@ export async function verifyRewardTransaction(
         });
 
         if (parsed) {
+          const logProjectId = parsed.args.projectId as string;
           const logFid = Number(parsed.args.fid);
-          const delta = BigInt(parsed.args.delta.toString());
+          const amount = BigInt(parsed.args.amount.toString());
 
+          // Match FID and optionally projectId
           if (logFid === expectedFid) {
-            return { verified: true, amount: delta };
+            if (!expectedProjectId || logProjectId.toLowerCase() === expectedProjectId.toLowerCase()) {
+              return { verified: true, amount };
+            }
           }
         }
       } catch {
@@ -265,38 +276,42 @@ function getEIP712Domain() {
   };
 }
 
-// EIP-712 Types
+// EIP-712 Types for v2 (per-project claims)
 const REFUND_TYPES = {
   ClaimRefund: [
+    { name: "projectId", type: "bytes32" },
     { name: "fid", type: "uint256" },
     { name: "recipient", type: "address" },
-    { name: "cumAmt", type: "uint256" },
+    { name: "amount", type: "uint256" },
     { name: "deadline", type: "uint256" },
   ],
 };
 
 const REWARD_TYPES = {
   ClaimReward: [
+    { name: "projectId", type: "bytes32" },
     { name: "fid", type: "uint256" },
     { name: "recipient", type: "address" },
-    { name: "cumAmt", type: "uint256" },
+    { name: "amount", type: "uint256" },
     { name: "deadline", type: "uint256" },
   ],
 };
 
-// Types
+// Types for v2 (per-project)
 export interface SignedClaim {
+  projectId: string;
   fid: string;
   recipient: string;
-  cumAmt: string;
+  amount: string;
   deadline: number;
   signature: string;
 }
 
 export interface ClaimParams {
+  projectId: string; // bytes32 as hex string
   fid: bigint;
   recipientAddress: string;
-  cumulativeAmount: bigint;
+  amount: bigint;
   deadlineSeconds?: number; // Default 10 minutes
 }
 
@@ -312,68 +327,74 @@ function getSigner(): ethers.Wallet {
 }
 
 /**
- * Sign a refund claim for failed project(s)
+ * Sign a refund claim for a specific project (v2)
  *
  * @example
  * const signed = await signRefundClaim({
+ *   projectId: toProjectId(283), // idea ID -> bytes32
  *   fid: 12345n,
  *   recipientAddress: '0x123...',
- *   cumulativeAmount: 150_000_000n, // 150 USDC (6 decimals)
+ *   amount: 150_000_000n, // 150 USDC (6 decimals)
  * });
  */
 export async function signRefundClaim(params: ClaimParams): Promise<SignedClaim> {
-  const { fid, recipientAddress, cumulativeAmount, deadlineSeconds = 600 } = params;
+  const { projectId, fid, recipientAddress, amount, deadlineSeconds = 600 } = params;
 
   const deadline = Math.floor(Date.now() / 1000) + deadlineSeconds;
   const signer = getSigner();
 
   const message = {
+    projectId,
     fid: fid.toString(),
     recipient: recipientAddress,
-    cumAmt: cumulativeAmount.toString(),
+    amount: amount.toString(),
     deadline,
   };
 
   const signature = await signer.signTypedData(getEIP712Domain(), REFUND_TYPES, message);
 
   return {
+    projectId,
     fid: fid.toString(),
     recipient: recipientAddress,
-    cumAmt: cumulativeAmount.toString(),
+    amount: amount.toString(),
     deadline,
     signature,
   };
 }
 
 /**
- * Sign a reward claim for builder or idea creator
+ * Sign a reward claim for a specific project (v2)
  *
  * @example
  * const signed = await signRewardClaim({
+ *   projectId: toProjectId(283), // idea ID -> bytes32
  *   fid: 67890n,
  *   recipientAddress: '0x456...',
- *   cumulativeAmount: 875_000_000n, // 875 USDC (6 decimals)
+ *   amount: 875_000_000n, // 875 USDC (6 decimals)
  * });
  */
 export async function signRewardClaim(params: ClaimParams): Promise<SignedClaim> {
-  const { fid, recipientAddress, cumulativeAmount, deadlineSeconds = 600 } = params;
+  const { projectId, fid, recipientAddress, amount, deadlineSeconds = 600 } = params;
 
   const deadline = Math.floor(Date.now() / 1000) + deadlineSeconds;
   const signer = getSigner();
 
   const message = {
+    projectId,
     fid: fid.toString(),
     recipient: recipientAddress,
-    cumAmt: cumulativeAmount.toString(),
+    amount: amount.toString(),
     deadline,
   };
 
   const signature = await signer.signTypedData(getEIP712Domain(), REWARD_TYPES, message);
 
   return {
+    projectId,
     fid: fid.toString(),
     recipient: recipientAddress,
-    cumAmt: cumulativeAmount.toString(),
+    amount: amount.toString(),
     deadline,
     signature,
   };

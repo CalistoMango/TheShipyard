@@ -161,10 +161,21 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
         await switchChain({ chainId: CHAIN_ID });
       }
 
-      // Get signature from backend (authenticated)
+      // Find the first project to claim from (v2: per-project claims)
+      // Priority: builder projects first, then submitter projects
+      const firstBuilderProject = rewardsData?.builderProjects?.[0];
+      const firstSubmitterProject = rewardsData?.submittedIdeas?.[0];
+      const projectToClaim = firstBuilderProject || firstSubmitterProject;
+
+      if (!projectToClaim) {
+        throw new Error("No projects with unclaimed rewards");
+      }
+
+      // Get signature from backend for this specific project (authenticated)
       const res = await authPost("/api/claim-reward", {
         user_fid: userFid,
         recipient: address,
+        idea_id: projectToClaim.idea_id,
       });
 
       if (!res.ok) {
@@ -172,17 +183,18 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
         throw new Error(err.error || "Failed to get reward signature");
       }
 
-      const { cumulativeAmount, cumulativeAmountUsdc, deadline, signature } = await res.json();
+      const { projectId, amount, amountUsdc, deadline, signature, ideaId } = await res.json();
 
-      // Submit to contract
+      // Submit to contract (v2: per-project)
       const txHash = await writeContractAsync({
         address: VAULT_ADDRESS,
         abi: vaultAbi,
         functionName: "claimReward",
         args: [
+          projectId as `0x${string}`,
           BigInt(userFid),
           address,
-          BigInt(cumulativeAmount),
+          BigInt(amount),
           BigInt(deadline),
           signature as `0x${string}`,
         ],
@@ -194,7 +206,8 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
       const recordRes = await authPost("/api/record-reward", {
         user_fid: userFid,
         tx_hash: txHash,
-        amount: cumulativeAmountUsdc,
+        amount: amountUsdc,
+        idea_id: ideaId,
       });
 
       if (!recordRes.ok) {
@@ -202,7 +215,7 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
         // Don't throw - the on-chain tx succeeded
       }
 
-      // Refetch rewards after claim (should now be 0)
+      // Refetch rewards after claim
       const rewardsRes = await fetch(`/api/claim-reward?fid=${userFid}`);
       if (rewardsRes.ok) {
         const rewardsJson = await rewardsRes.json();

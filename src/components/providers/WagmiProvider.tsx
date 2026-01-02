@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { farcasterFrame } from "@farcaster/miniapp-wagmi-connector";
 import { coinbaseWallet, metaMask } from 'wagmi/connectors';
 import { APP_NAME, APP_ICON_URL, APP_URL } from "~/lib/constants";
+import { CHAIN_ID } from "~/lib/contracts";
 import { useEffect, useState } from "react";
 import { useConnect, useAccount } from "wagmi";
 import React from "react";
@@ -41,8 +42,13 @@ function useCoinbaseWalletAutoConnect() {
   return isCoinbaseWallet;
 }
 
+// Order chains with the target chain first (Base Sepolia for testnet, Base for mainnet)
+const orderedChains = CHAIN_ID === 84532
+  ? [baseSepolia, base, optimism, mainnet, degen, unichain, celo] as const
+  : [base, baseSepolia, optimism, mainnet, degen, unichain, celo] as const;
+
 export const config = createConfig({
-  chains: [base, baseSepolia, optimism, mainnet, degen, unichain, celo],
+  chains: orderedChains,
   transports: {
     [base.id]: http(),
     [baseSepolia.id]: http(),

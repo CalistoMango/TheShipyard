@@ -4,25 +4,29 @@ import {
   signRewardClaim,
   usdcToBaseUnits,
   calculatePayouts,
+  toProjectId,
+  hasClaimedReward,
 } from "~/lib/vault-signer";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
 
 interface ClaimRewardRequest {
   user_fid: number;
   recipient: string; // wallet address
+  idea_id: number; // v2: required - claim for specific project
 }
 
 /**
  * POST /api/claim-reward
  *
- * Get a signed authorization to claim rewards as a builder or idea submitter.
- * The contract uses cumulative amounts by FID, so we calculate total rewards
- * across ALL completed projects where the user is builder or submitter.
+ * Get a signed authorization to claim rewards as a builder or idea submitter
+ * for a SPECIFIC project (v2: per-project claim tracking).
  *
  * Reward breakdown:
- * - Builders: 85% of each project pool they completed
- * - Idea Submitters: 5% of each project pool for their ideas
+ * - Builders: 85% of the project pool
+ * - Idea Submitters: 5% of the project pool
  * - Platform: 10% stays in vault (collected separately)
+ *
+ * If user is both builder AND submitter, they get combined 90%.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -37,6 +41,13 @@ export async function POST(request: NextRequest) {
     if (!body.user_fid) {
       return NextResponse.json(
         { error: "Missing required field: user_fid" },
+        { status: 400 }
+      );
+    }
+
+    if (!body.idea_id) {
+      return NextResponse.json(
+        { error: "Missing required field: idea_id" },
         { status: 400 }
       );
     }
@@ -56,157 +67,103 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServerClient();
 
-    // Get all APPROVED builds by this user (builder rewards - 85%)
-    // IMPORTANT: Join with ideas to check if builder_reward_claimed is false
-    const { data: builderBuilds, error: builderError } = await supabase
-      .from("builds")
-      .select(`
-        id,
-        idea_id,
-        ideas!inner(pool, status, builder_reward_claimed)
-      `)
-      .eq("builder_fid", body.user_fid)
-      .eq("status", "approved");
-
-    if (builderError) {
-      console.error("Error fetching builder builds:", builderError);
-      return NextResponse.json(
-        { error: "Failed to fetch builder data" },
-        { status: 500 }
-      );
-    }
-
-    // Get all completed ideas submitted by this user (submitter rewards - 5%)
-    // IMPORTANT: Only get ideas where submitter_reward_claimed is false
-    const { data: submittedIdeas, error: submitterError } = await supabase
+    // Get the specific idea
+    const { data: idea, error: ideaError } = await supabase
       .from("ideas")
-      .select("id, pool, status, submitter_reward_claimed")
-      .eq("submitter_fid", body.user_fid)
-      .eq("status", "completed")
-      .eq("submitter_reward_claimed", false);
+      .select("id, pool, status, submitter_fid, builder_reward_claimed, submitter_reward_claimed")
+      .eq("id", body.idea_id)
+      .single();
 
-    if (submitterError) {
-      console.error("Error fetching submitted ideas:", submitterError);
+    if (ideaError || !idea) {
+      return NextResponse.json({ error: "Idea not found" }, { status: 404 });
+    }
+
+    if (idea.status !== "completed") {
       return NextResponse.json(
-        { error: "Failed to fetch submitter data" },
-        { status: 500 }
-      );
-    }
-
-    // Calculate builder rewards (85% of each completed project pool)
-    // IMPORTANT: Only include ideas where builder_reward_claimed is false
-    let builderRewardsUsdc = 0;
-    const builderBreakdown: Array<{ idea_id: number; pool: number; reward: number }> = [];
-
-    for (const build of builderBuilds || []) {
-      const ideaInfo = build.ideas as unknown as {
-        pool: number;
-        status: string;
-        builder_reward_claimed: boolean;
-      };
-      // Only count unclaimed rewards for completed projects
-      if (ideaInfo.status === "completed" && !ideaInfo.builder_reward_claimed) {
-        const payouts = calculatePayouts(usdcToBaseUnits(Number(ideaInfo.pool)));
-        const rewardUsdc = Number(payouts.builderPayout) / 1_000_000; // Convert back to USDC
-        builderRewardsUsdc += rewardUsdc;
-        builderBreakdown.push({
-          idea_id: build.idea_id,
-          pool: Number(ideaInfo.pool),
-          reward: rewardUsdc,
-        });
-      }
-    }
-
-    // Calculate submitter rewards (5% of each completed project pool)
-    let submitterRewardsUsdc = 0;
-    const submitterBreakdown: Array<{ idea_id: number; pool: number; reward: number }> = [];
-
-    for (const idea of submittedIdeas || []) {
-      const payouts = calculatePayouts(usdcToBaseUnits(Number(idea.pool)));
-      const rewardUsdc = Number(payouts.ideaCreatorFee) / 1_000_000; // Convert back to USDC
-      submitterRewardsUsdc += rewardUsdc;
-      submitterBreakdown.push({
-        idea_id: idea.id,
-        pool: Number(idea.pool),
-        reward: rewardUsdc,
-      });
-    }
-
-    // Total NEW reward from DB (unclaimed rewards in our system)
-    const newRewardUsdc = builderRewardsUsdc + submitterRewardsUsdc;
-
-    if (newRewardUsdc <= 0) {
-      return NextResponse.json(
-        { error: "No rewards available for this user" },
+        { error: "Rewards are only available for completed projects" },
         { status: 400 }
       );
     }
 
-    // SECURITY: To prevent double-claims if record-reward is skipped,
-    // calculate TOTAL eligible rewards across ALL completed projects
-    // (ignoring the claimed flags) and compare against on-chain lastClaimedReward
-
-    // Get ALL approved builds (regardless of claimed flag)
-    const { data: allBuilderBuilds } = await supabase
+    // Check if user is the builder of this idea
+    const { data: builderBuild } = await supabase
       .from("builds")
-      .select("idea_id, ideas!inner(pool, status)")
+      .select("id")
+      .eq("idea_id", body.idea_id)
       .eq("builder_fid", body.user_fid)
-      .eq("status", "approved");
+      .eq("status", "approved")
+      .maybeSingle();
 
-    // Get ALL completed submitted ideas (regardless of claimed flag)
-    const { data: allSubmittedIdeas } = await supabase
-      .from("ideas")
-      .select("id, pool, status")
-      .eq("submitter_fid", body.user_fid)
-      .eq("status", "completed");
+    const isBuilder = !!builderBuild;
+    const isSubmitter = idea.submitter_fid === body.user_fid;
 
-    // Calculate total eligible builder rewards
-    let totalBuilderEligible = 0;
-    for (const build of allBuilderBuilds || []) {
-      const ideaInfo = build.ideas as unknown as { pool: number; status: string };
-      if (ideaInfo.status === "completed") {
-        const payouts = calculatePayouts(usdcToBaseUnits(Number(ideaInfo.pool)));
-        totalBuilderEligible += Number(payouts.builderPayout) / 1_000_000;
-      }
+    if (!isBuilder && !isSubmitter) {
+      return NextResponse.json(
+        { error: "You are not the builder or submitter of this project" },
+        { status: 400 }
+      );
     }
 
-    // Calculate total eligible submitter rewards
-    let totalSubmitterEligible = 0;
-    for (const idea of allSubmittedIdeas || []) {
-      const payouts = calculatePayouts(usdcToBaseUnits(Number(idea.pool)));
-      totalSubmitterEligible += Number(payouts.ideaCreatorFee) / 1_000_000;
+    // Calculate reward for this user on this project
+    const payouts = calculatePayouts(usdcToBaseUnits(Number(idea.pool)));
+    let rewardAmount = 0n;
+    let builderReward = 0;
+    let submitterReward = 0;
+
+    if (isBuilder && !idea.builder_reward_claimed) {
+      builderReward = Number(payouts.builderPayout) / 1_000_000;
+      rewardAmount += payouts.builderPayout;
     }
 
-    const totalEligibleUsdc = totalBuilderEligible + totalSubmitterEligible;
-    const cumulativeAmount = usdcToBaseUnits(totalEligibleUsdc);
+    if (isSubmitter && !idea.submitter_reward_claimed) {
+      submitterReward = Number(payouts.ideaCreatorFee) / 1_000_000;
+      rewardAmount += payouts.ideaCreatorFee;
+    }
 
-    // Sign the claim with the cumulative amount from the database
-    // The contract will:
-    // 1. Verify cumAmt >= lastClaimedReward (can't go backwards)
-    // 2. Pay out delta = cumAmt - lastClaimedReward
-    // 3. Update lastClaimedReward = cumAmt
-    // If delta is 0, the contract call will succeed but transfer nothing
+    if (rewardAmount === 0n) {
+      return NextResponse.json(
+        { error: "No unclaimed rewards available for this project" },
+        { status: 400 }
+      );
+    }
+
+    // Convert idea ID to bytes32 projectId for v2 contract
+    const projectId = toProjectId(body.idea_id);
+
+    // Check if already claimed on-chain (v2: per-project tracking)
+    const alreadyClaimed = await hasClaimedReward(projectId, BigInt(body.user_fid));
+    if (alreadyClaimed) {
+      return NextResponse.json(
+        { error: "Reward already claimed for this project" },
+        { status: 400 }
+      );
+    }
+
+    // Sign the claim for this specific project (v2: per-project)
     const signedClaim = await signRewardClaim({
+      projectId,
       fid: BigInt(body.user_fid),
       recipientAddress: body.recipient,
-      cumulativeAmount,
+      amount: rewardAmount,
     });
+
+    const totalRewardUsdc = builderReward + submitterReward;
 
     return NextResponse.json({
       success: true,
       fid: body.user_fid,
       recipient: body.recipient,
-      cumulativeAmount: signedClaim.cumAmt,
-      cumulativeAmountUsdc: totalEligibleUsdc,
+      ideaId: body.idea_id,
+      projectId: signedClaim.projectId,
+      amount: signedClaim.amount,
+      amountUsdc: totalRewardUsdc,
       deadline: signedClaim.deadline,
       signature: signedClaim.signature,
-      // Include breakdown for transparency
       breakdown: {
-        builderRewards: builderRewardsUsdc,
-        submitterRewards: submitterRewardsUsdc,
-        dbUnclaimed: newRewardUsdc,
-        builderProjects: builderBreakdown,
-        submittedIdeas: submitterBreakdown,
+        builderReward,
+        submitterReward,
+        isBuilder,
+        isSubmitter,
       },
     });
   } catch (error) {
