@@ -154,9 +154,9 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
         throw new Error(signatureData.error || "Failed to get refund signature");
       }
 
-      const { projectId, amount, amountUsdc, deadline, signature } = signatureData;
+      const { projectId, cumAmt, amountUsdc, deadline, signature } = signatureData;
 
-      // Submit to contract (v2: per-project)
+      // Submit to contract (v3: cumulative amount)
       const txHash = await writeContractAsync({
         address: VAULT_ADDRESS,
         abi: vaultAbi,
@@ -165,7 +165,7 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
           projectId as `0x${string}`,
           BigInt(userFid),
           address,
-          BigInt(amount),
+          BigInt(cumAmt),
           BigInt(deadline),
           signature as `0x${string}`,
         ],

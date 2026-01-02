@@ -183,9 +183,9 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
         throw new Error(err.error || "Failed to get reward signature");
       }
 
-      const { projectId, amount, amountUsdc, deadline, signature, ideaId } = await res.json();
+      const { projectId, cumAmt, amountUsdc, deadline, signature, ideaId } = await res.json();
 
-      // Submit to contract (v2: per-project)
+      // Submit to contract (v3: cumulative amount)
       const txHash = await writeContractAsync({
         address: VAULT_ADDRESS,
         abi: vaultAbi,
@@ -194,7 +194,7 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
           projectId as `0x${string}`,
           BigInt(userFid),
           address,
-          BigInt(amount),
+          BigInt(cumAmt),
           BigInt(deadline),
           signature as `0x${string}`,
         ],

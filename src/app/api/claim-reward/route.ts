@@ -5,21 +5,22 @@ import {
   usdcToBaseUnits,
   calculatePayouts,
   toProjectId,
-  hasClaimedReward,
+  getRewardClaimed,
 } from "~/lib/vault-signer";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
 
 interface ClaimRewardRequest {
   user_fid: number;
   recipient: string; // wallet address
-  idea_id: number; // v2: required - claim for specific project
+  idea_id: number; // v3: required - claim for specific project
 }
 
 /**
  * POST /api/claim-reward
  *
- * Get a signed authorization to claim rewards as a builder or idea submitter
- * for a SPECIFIC project (v2: per-project claim tracking).
+ * V3: Get a signed authorization for cumulative reward claim.
+ * Backend calculates: cumAmt = onChainClaimed + eligibleReward
+ * Contract pays: delta = cumAmt - onChainClaimed
  *
  * Reward breakdown:
  * - Builders: 85% of the project pool
@@ -104,50 +105,75 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate reward for this user on this project
+    // Convert idea ID to bytes32 projectId for v3 contract
+    const projectId = toProjectId(body.idea_id);
+
+    // V3: Get on-chain cumulative claimed amount FIRST
+    // CRITICAL: If RPC fails, we must NOT proceed with potentially stale data
+    let onChainClaimed: bigint;
+    try {
+      onChainClaimed = await getRewardClaimed(projectId, BigInt(body.user_fid));
+    } catch (error) {
+      console.error("Failed to read on-chain claimed amount:", error);
+      return NextResponse.json(
+        { error: "Failed to verify on-chain state" },
+        { status: 503 }
+      );
+    }
+
+    // Calculate TOTAL reward this user is EVER entitled to for this project
+    // V3 SECURITY: Use total entitlement, not DB-unclaimed
+    // This prevents double-claims if DB record-reward was skipped
     const payouts = calculatePayouts(usdcToBaseUnits(Number(idea.pool)));
-    let rewardAmount = 0n;
+    let totalRewardEntitlement = 0n;
     let builderReward = 0;
     let submitterReward = 0;
 
-    if (isBuilder && !idea.builder_reward_claimed) {
+    // Builder gets 85% if they're the approved builder
+    if (isBuilder) {
       builderReward = Number(payouts.builderPayout) / 1_000_000;
-      rewardAmount += payouts.builderPayout;
+      totalRewardEntitlement += payouts.builderPayout;
     }
 
-    if (isSubmitter && !idea.submitter_reward_claimed) {
+    // Submitter gets 5% if they're the idea submitter
+    if (isSubmitter) {
       submitterReward = Number(payouts.ideaCreatorFee) / 1_000_000;
-      rewardAmount += payouts.ideaCreatorFee;
+      totalRewardEntitlement += payouts.ideaCreatorFee;
     }
 
-    if (rewardAmount === 0n) {
+    if (totalRewardEntitlement === 0n) {
       return NextResponse.json(
-        { error: "No unclaimed rewards available for this project" },
+        { error: "No rewards available for this user on this project" },
         { status: 400 }
       );
     }
 
-    // Convert idea ID to bytes32 projectId for v2 contract
-    const projectId = toProjectId(body.idea_id);
+    // V3 SECURITY: cumAmt = total entitlement (not onChainClaimed + dbEligible)
+    // Contract will pay: delta = cumAmt - onChainClaimed
+    // This is safe because:
+    // - cumAmt is based on fixed pool amount and role
+    // - Contract only pays the delta since last claim
+    // - Even if DB flags are out of sync, on-chain state prevents double-pay
+    const cumAmt = totalRewardEntitlement;
 
-    // Check if already claimed on-chain (v2: per-project tracking)
-    const alreadyClaimed = await hasClaimedReward(projectId, BigInt(body.user_fid));
-    if (alreadyClaimed) {
+    // Check if there's anything new to claim
+    if (cumAmt <= onChainClaimed) {
       return NextResponse.json(
-        { error: "Reward already claimed for this project" },
+        { error: "No rewards available - all rewards already claimed" },
         { status: 400 }
       );
     }
 
-    // Sign the claim for this specific project (v2: per-project)
+    // Calculate actual amount that will be transferred (for UI display)
+    const deltaAmount = cumAmt - onChainClaimed;
+    const deltaUsdc = Number(deltaAmount) / 1_000_000;
+
     const signedClaim = await signRewardClaim({
       projectId,
       fid: BigInt(body.user_fid),
       recipientAddress: body.recipient,
-      amount: rewardAmount,
+      cumAmt,
     });
-
-    const totalRewardUsdc = builderReward + submitterReward;
 
     return NextResponse.json({
       success: true,
@@ -155,8 +181,10 @@ export async function POST(request: NextRequest) {
       recipient: body.recipient,
       ideaId: body.idea_id,
       projectId: signedClaim.projectId,
-      amount: signedClaim.amount,
-      amountUsdc: totalRewardUsdc,
+      cumAmt: signedClaim.cumAmt,
+      amountUsdc: deltaUsdc, // The delta that will be transferred
+      totalEntitlement: Number(totalRewardEntitlement) / 1_000_000,
+      onChainClaimed: onChainClaimed.toString(),
       deadline: signedClaim.deadline,
       signature: signedClaim.signature,
       breakdown: {
@@ -178,7 +206,8 @@ export async function POST(request: NextRequest) {
 /**
  * GET /api/claim-reward?fid=12345
  *
- * Check available rewards for a user (without signing)
+ * V3: Check available rewards for a user using on-chain state as source of truth.
+ * For each project, we check on-chain rewardClaimed to determine actual claimable amount.
  */
 export async function GET(request: NextRequest) {
   const fid = request.nextUrl.searchParams.get("fid");
@@ -198,65 +227,118 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = createServerClient();
 
-    // Get all approved builds by this user
-    // Include builder_reward_claimed to filter out already-claimed
+    // Get all approved builds by this user for completed projects
     const { data: builderBuilds } = await supabase
       .from("builds")
       .select(`
         id,
         idea_id,
-        ideas!inner(pool, status, title, builder_reward_claimed)
+        ideas!inner(pool, status, title, submitter_fid)
       `)
       .eq("builder_fid", userFid)
       .eq("status", "approved");
 
     // Get all completed ideas submitted by this user
-    // Only get ideas where submitter_reward_claimed is false
     const { data: submittedIdeas } = await supabase
       .from("ideas")
-      .select("id, pool, status, title, submitter_reward_claimed")
+      .select("id, pool, status, title")
       .eq("submitter_fid", userFid)
-      .eq("status", "completed")
-      .eq("submitter_reward_claimed", false);
+      .eq("status", "completed");
 
-    // Calculate builder rewards
-    // Only include unclaimed rewards
+    // Collect all unique idea IDs to check on-chain
+    const ideaIdsToCheck = new Set<number>();
+
+    for (const build of builderBuilds || []) {
+      const ideaInfo = build.ideas as unknown as { status: string };
+      if (ideaInfo.status === "completed") {
+        ideaIdsToCheck.add(build.idea_id);
+      }
+    }
+
+    for (const idea of submittedIdeas || []) {
+      ideaIdsToCheck.add(idea.id);
+    }
+
+    // V3: Check on-chain claimed amounts for each project
+    // This is authoritative - DB flags may be out of sync
+    const onChainClaimed = new Map<number, bigint>();
+
+    for (const ideaId of ideaIdsToCheck) {
+      try {
+        const projectId = toProjectId(ideaId);
+        const claimed = await getRewardClaimed(projectId, BigInt(userFid));
+        onChainClaimed.set(ideaId, claimed);
+      } catch (error) {
+        // If RPC fails for a project, skip it (don't show as claimable)
+        console.error(`Failed to get on-chain claimed for idea ${ideaId}:`, error);
+        onChainClaimed.set(ideaId, BigInt(Number.MAX_SAFE_INTEGER)); // Treat as fully claimed
+      }
+    }
+
+    // Calculate builder rewards using on-chain state
     let builderRewardsUsdc = 0;
-    const builderProjects: Array<{ idea_id: number; title: string; reward: number }> = [];
+    const builderProjects: Array<{ idea_id: number; title: string; reward: number; claimable: number }> = [];
 
     for (const build of builderBuilds || []) {
       const ideaInfo = build.ideas as unknown as {
         pool: number;
         status: string;
         title: string;
-        builder_reward_claimed: boolean;
+        submitter_fid: number;
       };
-      // Only count unclaimed rewards for completed projects
-      if (ideaInfo.status === "completed" && !ideaInfo.builder_reward_claimed) {
-        const payouts = calculatePayouts(usdcToBaseUnits(Number(ideaInfo.pool)));
-        const rewardUsdc = Number(payouts.builderPayout) / 1_000_000;
-        builderRewardsUsdc += rewardUsdc;
+
+      if (ideaInfo.status !== "completed") continue;
+
+      const payouts = calculatePayouts(usdcToBaseUnits(Number(ideaInfo.pool)));
+      const builderReward = payouts.builderPayout;
+
+      // Check if user is also submitter (gets both rewards)
+      const isAlsoSubmitter = ideaInfo.submitter_fid === userFid;
+      const totalEntitlement = isAlsoSubmitter
+        ? builderReward + payouts.ideaCreatorFee
+        : builderReward;
+
+      const claimed = onChainClaimed.get(build.idea_id) ?? 0n;
+      const claimable = totalEntitlement > claimed ? totalEntitlement - claimed : 0n;
+      const claimableUsdc = Number(claimable) / 1_000_000;
+
+      if (claimableUsdc > 0) {
+        builderRewardsUsdc += claimableUsdc;
         builderProjects.push({
           idea_id: build.idea_id,
           title: ideaInfo.title,
-          reward: rewardUsdc,
+          reward: Number(builderReward) / 1_000_000,
+          claimable: claimableUsdc,
         });
       }
     }
 
-    // Calculate submitter rewards
+    // Calculate submitter rewards using on-chain state
+    // Skip if already counted as builder (to avoid double-counting)
     let submitterRewardsUsdc = 0;
-    const submittedIdeaList: Array<{ idea_id: number; title: string; reward: number }> = [];
+    const submittedIdeaList: Array<{ idea_id: number; title: string; reward: number; claimable: number }> = [];
+    const builderIdeaIds = new Set(builderProjects.map(p => p.idea_id));
 
     for (const idea of submittedIdeas || []) {
+      // Skip if already counted in builder rewards
+      if (builderIdeaIds.has(idea.id)) continue;
+
       const payouts = calculatePayouts(usdcToBaseUnits(Number(idea.pool)));
-      const rewardUsdc = Number(payouts.ideaCreatorFee) / 1_000_000;
-      submitterRewardsUsdc += rewardUsdc;
-      submittedIdeaList.push({
-        idea_id: idea.id,
-        title: idea.title,
-        reward: rewardUsdc,
-      });
+      const submitterReward = payouts.ideaCreatorFee;
+
+      const claimed = onChainClaimed.get(idea.id) ?? 0n;
+      const claimable = submitterReward > claimed ? submitterReward - claimed : 0n;
+      const claimableUsdc = Number(claimable) / 1_000_000;
+
+      if (claimableUsdc > 0) {
+        submitterRewardsUsdc += claimableUsdc;
+        submittedIdeaList.push({
+          idea_id: idea.id,
+          title: idea.title,
+          reward: Number(submitterReward) / 1_000_000,
+          claimable: claimableUsdc,
+        });
+      }
     }
 
     return NextResponse.json({

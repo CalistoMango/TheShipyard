@@ -1,7 +1,8 @@
 /**
- * Backend Signing Utility for ShipyardVault v2
+ * Backend Signing Utility for ShipyardVault v3
  *
- * Handles EIP-712 signature generation for per-project refunds and rewards.
+ * Handles EIP-712 signature generation for cumulative per-project claims.
+ * Backend signs cumulative amounts, contract pays delta since last claim.
  * Server-side only - uses PAYOUT_SIGNER_KEY from environment.
  */
 
@@ -44,29 +45,25 @@ export function toProjectId(ideaId: number): string {
 }
 
 /**
- * Check if a refund has been claimed for a (projectId, fid) pair
+ * Get cumulative refund amount claimed for a (projectId, fid) pair
+ * V3: Returns uint256 (cumulative amount), not boolean
+ * THROWS on RPC error - caller must handle to prevent signing with stale state
  */
-export async function hasClaimedRefund(projectId: string, fid: bigint): Promise<boolean> {
-  try {
-    const vault = getVaultContract();
-    return await vault.hasClaimedRefund(projectId, fid);
-  } catch (error) {
-    console.error("Error checking hasClaimedRefund:", error);
-    return false;
-  }
+export async function getRefundClaimed(projectId: string, fid: bigint): Promise<bigint> {
+  const vault = getVaultContract();
+  const claimed = await vault.refundClaimed(projectId, fid);
+  return BigInt(claimed.toString());
 }
 
 /**
- * Check if a reward has been claimed for a (projectId, fid) pair
+ * Get cumulative reward amount claimed for a (projectId, fid) pair
+ * V3: Returns uint256 (cumulative amount), not boolean
+ * THROWS on RPC error - caller must handle to prevent signing with stale state
  */
-export async function hasClaimedReward(projectId: string, fid: bigint): Promise<boolean> {
-  try {
-    const vault = getVaultContract();
-    return await vault.hasClaimedReward(projectId, fid);
-  } catch (error) {
-    console.error("Error checking hasClaimedReward:", error);
-    return false;
-  }
+export async function getRewardClaimed(projectId: string, fid: bigint): Promise<bigint> {
+  const vault = getVaultContract();
+  const claimed = await vault.rewardClaimed(projectId, fid);
+  return BigInt(claimed.toString());
 }
 
 /**
@@ -276,13 +273,13 @@ function getEIP712Domain() {
   };
 }
 
-// EIP-712 Types for v2 (per-project claims)
+// EIP-712 Types for v3 (cumulative claims)
 const REFUND_TYPES = {
   ClaimRefund: [
     { name: "projectId", type: "bytes32" },
     { name: "fid", type: "uint256" },
     { name: "recipient", type: "address" },
-    { name: "amount", type: "uint256" },
+    { name: "cumAmt", type: "uint256" },
     { name: "deadline", type: "uint256" },
   ],
 };
@@ -292,17 +289,17 @@ const REWARD_TYPES = {
     { name: "projectId", type: "bytes32" },
     { name: "fid", type: "uint256" },
     { name: "recipient", type: "address" },
-    { name: "amount", type: "uint256" },
+    { name: "cumAmt", type: "uint256" },
     { name: "deadline", type: "uint256" },
   ],
 };
 
-// Types for v2 (per-project)
+// Types for v3 (cumulative claims)
 export interface SignedClaim {
   projectId: string;
   fid: string;
   recipient: string;
-  amount: string;
+  cumAmt: string; // v3: cumulative amount
   deadline: number;
   signature: string;
 }
@@ -311,7 +308,7 @@ export interface ClaimParams {
   projectId: string; // bytes32 as hex string
   fid: bigint;
   recipientAddress: string;
-  amount: bigint;
+  cumAmt: bigint; // v3: cumulative total amount to sign for
   deadlineSeconds?: number; // Default 10 minutes
 }
 
@@ -327,18 +324,23 @@ function getSigner(): ethers.Wallet {
 }
 
 /**
- * Sign a refund claim for a specific project (v2)
+ * Sign a refund claim for a specific project (v3 - cumulative)
+ *
+ * Backend calculates: cumAmt = onChainClaimed + eligibleRefund
+ * Contract pays: delta = cumAmt - onChainClaimed
  *
  * @example
+ * const onChainClaimed = await getRefundClaimed(projectId, fid);
+ * const eligible = 10_000_000n; // $10 new eligible refund
  * const signed = await signRefundClaim({
- *   projectId: toProjectId(283), // idea ID -> bytes32
+ *   projectId: toProjectId(283),
  *   fid: 12345n,
  *   recipientAddress: '0x123...',
- *   amount: 150_000_000n, // 150 USDC (6 decimals)
+ *   cumAmt: onChainClaimed + eligible, // cumulative total
  * });
  */
 export async function signRefundClaim(params: ClaimParams): Promise<SignedClaim> {
-  const { projectId, fid, recipientAddress, amount, deadlineSeconds = 600 } = params;
+  const { projectId, fid, recipientAddress, cumAmt, deadlineSeconds = 600 } = params;
 
   const deadline = Math.floor(Date.now() / 1000) + deadlineSeconds;
   const signer = getSigner();
@@ -347,7 +349,7 @@ export async function signRefundClaim(params: ClaimParams): Promise<SignedClaim>
     projectId,
     fid: fid.toString(),
     recipient: recipientAddress,
-    amount: amount.toString(),
+    cumAmt: cumAmt.toString(),
     deadline,
   };
 
@@ -357,25 +359,30 @@ export async function signRefundClaim(params: ClaimParams): Promise<SignedClaim>
     projectId,
     fid: fid.toString(),
     recipient: recipientAddress,
-    amount: amount.toString(),
+    cumAmt: cumAmt.toString(),
     deadline,
     signature,
   };
 }
 
 /**
- * Sign a reward claim for a specific project (v2)
+ * Sign a reward claim for a specific project (v3 - cumulative)
+ *
+ * Backend calculates: cumAmt = onChainClaimed + eligibleReward
+ * Contract pays: delta = cumAmt - onChainClaimed
  *
  * @example
+ * const onChainClaimed = await getRewardClaimed(projectId, fid);
+ * const eligible = 85_000_000n; // $85 builder reward
  * const signed = await signRewardClaim({
- *   projectId: toProjectId(283), // idea ID -> bytes32
+ *   projectId: toProjectId(283),
  *   fid: 67890n,
  *   recipientAddress: '0x456...',
- *   amount: 875_000_000n, // 875 USDC (6 decimals)
+ *   cumAmt: onChainClaimed + eligible, // cumulative total
  * });
  */
 export async function signRewardClaim(params: ClaimParams): Promise<SignedClaim> {
-  const { projectId, fid, recipientAddress, amount, deadlineSeconds = 600 } = params;
+  const { projectId, fid, recipientAddress, cumAmt, deadlineSeconds = 600 } = params;
 
   const deadline = Math.floor(Date.now() / 1000) + deadlineSeconds;
   const signer = getSigner();
@@ -384,7 +391,7 @@ export async function signRewardClaim(params: ClaimParams): Promise<SignedClaim>
     projectId,
     fid: fid.toString(),
     recipient: recipientAddress,
-    amount: amount.toString(),
+    cumAmt: cumAmt.toString(),
     deadline,
   };
 
@@ -394,7 +401,7 @@ export async function signRewardClaim(params: ClaimParams): Promise<SignedClaim>
     projectId,
     fid: fid.toString(),
     recipient: recipientAddress,
-    amount: amount.toString(),
+    cumAmt: cumAmt.toString(),
     deadline,
     signature,
   };

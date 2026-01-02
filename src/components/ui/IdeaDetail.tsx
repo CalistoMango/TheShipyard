@@ -411,14 +411,14 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         throw new Error(signatureData.error || "Failed to get refund signature");
       }
 
-      const { projectId, amount, amountUsdc, deadline, signature } = signatureData;
+      const { projectId, cumAmt, amountUsdc, deadline, signature } = signatureData;
 
-      // Step 2: Call claimRefund on contract (v2: per-project)
+      // Step 2: Call claimRefund on contract (v3: cumulative amount)
       const withdrawTx = await writeContractAsync({
         address: VAULT_ADDRESS,
         abi: vaultAbi,
         functionName: "claimRefund",
-        args: [projectId as `0x${string}`, BigInt(userFid), address, BigInt(amount), BigInt(deadline), signature as `0x${string}`],
+        args: [projectId as `0x${string}`, BigInt(userFid), address, BigInt(cumAmt), BigInt(deadline), signature as `0x${string}`],
         chainId: CHAIN_ID,
       });
 

@@ -1,7 +1,8 @@
 /**
  * Smart contract addresses and ABIs for The Shipyard
  *
- * Uses ShipyardVault v2 - Per-project claim tracking
+ * Uses ShipyardVault v3 - Cumulative per-project claims
+ * Backend signs cumulative amounts, contract pays delta since last claim
  */
 
 // Chain configuration - set via environment or defaults to Base Mainnet
@@ -57,7 +58,7 @@ export const erc20Abi = [
   },
 ] as const;
 
-// ShipyardVault v2 ABI (per-project claim tracking)
+// ShipyardVault v3 ABI (cumulative per-project claims)
 export const vaultAbi = [
   // Fund a project
   {
@@ -71,7 +72,7 @@ export const vaultAbi = [
     ],
     outputs: [],
   },
-  // Claim refund with backend signature (v2: per-project)
+  // Claim refund with backend signature (v3: cumulative amount)
   {
     name: "claimRefund",
     type: "function",
@@ -80,13 +81,13 @@ export const vaultAbi = [
       { name: "projectId", type: "bytes32" },
       { name: "fid", type: "uint256" },
       { name: "recipient", type: "address" },
-      { name: "amount", type: "uint256" },
+      { name: "cumAmt", type: "uint256" },
       { name: "deadline", type: "uint256" },
       { name: "signature", type: "bytes" },
     ],
     outputs: [],
   },
-  // Claim reward with backend signature (v2: per-project)
+  // Claim reward with backend signature (v3: cumulative amount)
   {
     name: "claimReward",
     type: "function",
@@ -95,13 +96,13 @@ export const vaultAbi = [
       { name: "projectId", type: "bytes32" },
       { name: "fid", type: "uint256" },
       { name: "recipient", type: "address" },
-      { name: "amount", type: "uint256" },
+      { name: "cumAmt", type: "uint256" },
       { name: "deadline", type: "uint256" },
       { name: "signature", type: "bytes" },
     ],
     outputs: [],
   },
-  // View: Check if refund claimed for (projectId, fid)
+  // View: Cumulative refund claimed for (projectId, fid)
   {
     name: "refundClaimed",
     type: "function",
@@ -110,9 +111,9 @@ export const vaultAbi = [
       { name: "projectId", type: "bytes32" },
       { name: "fid", type: "uint256" },
     ],
-    outputs: [{ type: "bool" }],
+    outputs: [{ type: "uint256" }],
   },
-  // View: Check if reward claimed for (projectId, fid)
+  // View: Cumulative reward claimed for (projectId, fid)
   {
     name: "rewardClaimed",
     type: "function",
@@ -121,29 +122,7 @@ export const vaultAbi = [
       { name: "projectId", type: "bytes32" },
       { name: "fid", type: "uint256" },
     ],
-    outputs: [{ type: "bool" }],
-  },
-  // View: Helper to check refund claimed
-  {
-    name: "hasClaimedRefund",
-    type: "function",
-    stateMutability: "view",
-    inputs: [
-      { name: "projectId", type: "bytes32" },
-      { name: "fid", type: "uint256" },
-    ],
-    outputs: [{ type: "bool" }],
-  },
-  // View: Helper to check reward claimed
-  {
-    name: "hasClaimedReward",
-    type: "function",
-    stateMutability: "view",
-    inputs: [
-      { name: "projectId", type: "bytes32" },
-      { name: "fid", type: "uint256" },
-    ],
-    outputs: [{ type: "bool" }],
+    outputs: [{ type: "uint256" }],
   },
   // View: Total USDC in vault
   {
@@ -161,7 +140,7 @@ export const vaultAbi = [
     inputs: [],
     outputs: [{ type: "bytes32" }],
   },
-  // Events (v2: per-project tracking)
+  // Events (v3: cumulative tracking, emits delta amount)
   {
     name: "ProjectFunded",
     type: "event",
@@ -179,7 +158,7 @@ export const vaultAbi = [
       { name: "projectId", type: "bytes32", indexed: true },
       { name: "fid", type: "uint256", indexed: true },
       { name: "recipient", type: "address", indexed: true },
-      { name: "amount", type: "uint256", indexed: false },
+      { name: "amount", type: "uint256", indexed: false }, // delta transferred
     ],
   },
   {
@@ -189,7 +168,7 @@ export const vaultAbi = [
       { name: "projectId", type: "bytes32", indexed: true },
       { name: "fid", type: "uint256", indexed: true },
       { name: "recipient", type: "address", indexed: true },
-      { name: "amount", type: "uint256", indexed: false },
+      { name: "amount", type: "uint256", indexed: false }, // delta transferred
     ],
   },
 ] as const;
@@ -213,13 +192,13 @@ export const VAULT_DOMAIN = {
   // verifyingContract will be added when VAULT_ADDRESS is set
 } as const;
 
-// EIP-712 types for v2 claim signatures (per-project)
+// EIP-712 types for v3 claim signatures (cumulative amounts)
 export const CLAIM_REFUND_TYPES = {
   ClaimRefund: [
     { name: "projectId", type: "bytes32" },
     { name: "fid", type: "uint256" },
     { name: "recipient", type: "address" },
-    { name: "amount", type: "uint256" },
+    { name: "cumAmt", type: "uint256" },
     { name: "deadline", type: "uint256" },
   ],
 } as const;
@@ -229,7 +208,7 @@ export const CLAIM_REWARD_TYPES = {
     { name: "projectId", type: "bytes32" },
     { name: "fid", type: "uint256" },
     { name: "recipient", type: "address" },
-    { name: "amount", type: "uint256" },
+    { name: "cumAmt", type: "uint256" },
     { name: "deadline", type: "uint256" },
   ],
 } as const;

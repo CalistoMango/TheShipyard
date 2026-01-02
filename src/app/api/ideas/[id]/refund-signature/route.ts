@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-import { signRefundClaim, usdcToBaseUnits, toProjectId, hasClaimedRefund } from "~/lib/vault-signer";
+import { signRefundClaim, usdcToBaseUnits, toProjectId, getRefundClaimed } from "~/lib/vault-signer";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
 import { REFUND_DELAY_DAYS } from "~/lib/constants";
 import { checkRefundEligibility } from "~/lib/refund";
@@ -14,9 +14,9 @@ interface RefundSignatureRequest {
 /**
  * POST /api/ideas/[id]/refund-signature
  *
- * Get a signed authorization to claim refunds for a specific idea.
- * This endpoint calculates the refund amount for the user's funding
- * on THIS specific idea only.
+ * V3: Get a signed authorization for cumulative refund claim.
+ * Backend calculates: cumAmt = onChainClaimed + eligibleRefund
+ * Contract pays: delta = cumAmt - onChainClaimed
  */
 export async function POST(
   request: NextRequest,
@@ -98,14 +98,29 @@ export async function POST(
       );
     }
 
-    // Get funding by this user for THIS specific idea only
-    // IMPORTANT: Exclude already-refunded funding records
-    const { data: eligibleFunding, error: fundingError } = await supabase
+    // Convert idea ID to bytes32 projectId for v3 contract
+    const projectId = toProjectId(ideaId);
+
+    // V3: Get on-chain cumulative claimed amount FIRST
+    // CRITICAL: If RPC fails, we must NOT proceed with potentially stale data
+    let onChainClaimed: bigint;
+    try {
+      onChainClaimed = await getRefundClaimed(projectId, BigInt(body.user_fid));
+    } catch (error) {
+      console.error("Failed to read on-chain claimed amount:", error);
+      return NextResponse.json(
+        { error: "Failed to verify on-chain state" },
+        { status: 503 }
+      );
+    }
+
+    // V3 SECURITY: Get TOTAL funding for this idea (including already-refunded)
+    // This is the source of truth for what the user has ever funded
+    const { data: allFunding, error: fundingError } = await supabase
       .from("funding")
-      .select("id, amount")
+      .select("id, amount, refunded_at")
       .eq("funder_fid", body.user_fid)
-      .eq("idea_id", ideaId) // Only this idea
-      .is("refunded_at", null); // Only un-refunded
+      .eq("idea_id", ideaId);
 
     if (fundingError) {
       console.error("Error fetching funding:", fundingError);
@@ -115,44 +130,49 @@ export async function POST(
       );
     }
 
-    // Calculate refund amount for this idea
-    const thisIdeaRefundUsdc = (eligibleFunding || []).reduce(
+    // Calculate total ever funded for this idea
+    const totalEverFundedUsdc = (allFunding || []).reduce(
       (sum, f) => sum + Number(f.amount),
       0
     );
 
-    if (thisIdeaRefundUsdc <= 0) {
+    if (totalEverFundedUsdc <= 0) {
       return NextResponse.json(
-        { error: "No refund available for this user on this idea" },
+        { error: "No funding found for this user on this idea" },
         { status: 400 }
       );
     }
 
-    // Convert idea ID to bytes32 projectId for v2 contract
-    const projectId = toProjectId(ideaId);
+    // Convert to base units
+    const totalEverFunded = usdcToBaseUnits(totalEverFundedUsdc);
 
-    // Check if already claimed on-chain (v2: per-project tracking)
-    const alreadyClaimed = await hasClaimedRefund(projectId, BigInt(body.user_fid));
-    if (alreadyClaimed) {
+    // V3 SECURITY: The cumAmt to sign is the total ever funded
+    // Contract will pay: min(cumAmt - onChainClaimed, cumAmt)
+    // If user already claimed everything, delta = 0, contract rejects "Nothing new to claim"
+    //
+    // This is safe because:
+    // - cumAmt is based on actual funding records (can't inflate)
+    // - Contract only pays the delta since last claim
+    // - Even if DB refunded_at is out of sync, on-chain state prevents double-pay
+    const cumAmt = totalEverFunded;
+
+    // Check if there's anything new to claim
+    if (cumAmt <= onChainClaimed) {
       return NextResponse.json(
-        { error: "Refund already claimed for this project" },
+        { error: "No refund available - all funding already claimed" },
         { status: 400 }
       );
     }
 
-    // Convert to base units - this is what the user is entitled to for THIS idea
-    const amount = usdcToBaseUnits(thisIdeaRefundUsdc);
+    // Calculate actual amount that will be transferred (for UI display)
+    const deltaAmount = cumAmt - onChainClaimed;
+    const deltaUsdc = Number(deltaAmount) / 1_000_000;
 
-    // Sign the claim for this specific project (v2: per-project)
-    // The contract will:
-    // 1. Verify refundClaimed[projectId][fid] == false
-    // 2. Mark refundClaimed[projectId][fid] = true
-    // 3. Transfer the amount
     const signedClaim = await signRefundClaim({
       projectId,
       fid: BigInt(body.user_fid),
       recipientAddress: body.recipient,
-      amount,
+      cumAmt,
     });
 
     return NextResponse.json({
@@ -161,8 +181,10 @@ export async function POST(
       recipient: body.recipient,
       ideaId,
       projectId: signedClaim.projectId,
-      amount: signedClaim.amount,
-      amountUsdc: thisIdeaRefundUsdc,
+      cumAmt: signedClaim.cumAmt,
+      amountUsdc: deltaUsdc, // The delta that will be transferred
+      totalEverFunded: totalEverFundedUsdc,
+      onChainClaimed: onChainClaimed.toString(),
       deadline: signedClaim.deadline,
       signature: signedClaim.signature,
     });
