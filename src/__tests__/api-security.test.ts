@@ -123,6 +123,7 @@ describe("Security: Record-reward tx_hash replay protection", () => {
           user_fid: 12345,
           tx_hash: "0xrewardtest" + Date.now().toString(16),
           amount: 100,
+          idea_id: 283,
         }),
       });
 
@@ -138,6 +139,7 @@ describe("Security: Record-reward tx_hash replay protection", () => {
           user_fid: 12345,
           tx_hash: "invalid-not-0x",
           amount: 100,
+          idea_id: 283,
         }),
       });
 
@@ -152,6 +154,7 @@ describe("Security: Record-reward tx_hash replay protection", () => {
         body: JSON.stringify({
           user_fid: 12345,
           tx_hash: "0xrewardtest" + Date.now().toString(16),
+          idea_id: 283,
         }),
       });
 
@@ -167,10 +170,26 @@ describe("Security: Record-reward tx_hash replay protection", () => {
           user_fid: 12345,
           tx_hash: "0xrewardtest" + Date.now().toString(16),
           amount: 0,
+          idea_id: 283,
         }),
       });
 
       // Either 400 (invalid amount) or 401 (no auth)
+      expect([400, 401]).toContain(res.status);
+    });
+
+    it("should reject request with missing idea_id (v2)", async () => {
+      const res = await fetch(`${API_BASE}/api/record-reward`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_fid: 12345,
+          tx_hash: "0xrewardtest" + Date.now().toString(16),
+          amount: 100,
+        }),
+      });
+
+      // Either 400 (missing idea_id) or 401 (no auth)
       expect([400, 401]).toContain(res.status);
     });
   });

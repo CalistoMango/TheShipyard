@@ -165,6 +165,7 @@ describe("API: /api/record-reward", () => {
           user_fid: 12345,
           tx_hash: "0xtest" + Date.now().toString(16),
           amount: 100,
+          idea_id: 283,
         }),
       });
 
@@ -178,6 +179,7 @@ describe("API: /api/record-reward", () => {
         body: JSON.stringify({
           user_fid: 12345,
           amount: 100,
+          idea_id: 283,
         }),
       });
 
@@ -193,6 +195,7 @@ describe("API: /api/record-reward", () => {
           user_fid: 12345,
           tx_hash: "not-a-valid-hash",
           amount: 100,
+          idea_id: 283,
         }),
       });
 
@@ -208,16 +211,32 @@ describe("API: /api/record-reward", () => {
           user_fid: 12345,
           tx_hash: "0xtest" + Date.now().toString(16),
           amount: 0,
+          idea_id: 283,
         }),
       });
 
       // Either 400 (invalid amount) or 401 (no auth)
       expect([400, 401]).toContain(res.status);
     });
+
+    it("should reject missing idea_id (v2)", async () => {
+      const res = await fetch(`${API_BASE}/api/record-reward`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_fid: 12345,
+          tx_hash: "0xtest" + Date.now().toString(16),
+          amount: 100,
+        }),
+      });
+
+      // Either 400 (missing idea_id) or 401 (no auth)
+      expect([400, 401]).toContain(res.status);
+    });
   });
 });
 
-describe("API: /api/record-refund (global)", () => {
+describe("API: /api/record-refund (per-project v2)", () => {
   describe("POST /api/record-refund", () => {
     it("should require authentication", async () => {
       const res = await fetch(`${API_BASE}/api/record-refund`, {
@@ -227,6 +246,7 @@ describe("API: /api/record-refund (global)", () => {
           user_fid: 12345,
           tx_hash: "0xtest" + Date.now().toString(16),
           amount: 100,
+          idea_id: 283,
         }),
       });
 
@@ -240,10 +260,26 @@ describe("API: /api/record-refund (global)", () => {
         body: JSON.stringify({
           tx_hash: "0xtest" + Date.now().toString(16),
           amount: 100,
+          idea_id: 283,
         }),
       });
 
       // Either 400 (missing user_fid) or 401 (no auth)
+      expect([400, 401]).toContain(res.status);
+    });
+
+    it("should reject missing idea_id (v2)", async () => {
+      const res = await fetch(`${API_BASE}/api/record-refund`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_fid: 12345,
+          tx_hash: "0xtest" + Date.now().toString(16),
+          amount: 100,
+        }),
+      });
+
+      // Either 400 (missing idea_id) or 401 (no auth)
       expect([400, 401]).toContain(res.status);
     });
 
