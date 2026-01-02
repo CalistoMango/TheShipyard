@@ -42,8 +42,9 @@ export async function GET() {
     }
 
     // Transform to API format
+    // NOTE: Supabase single-row joins return objects, not arrays
     const ideas = racingIdeas.map((idea) => {
-      const user = (idea.users as unknown as { username: string | null; display_name: string | null }[] | null)?.[0] ?? null;
+      const user = idea.users as unknown as { username: string | null; display_name: string | null } | null;
       return {
         id: idea.id,
         title: idea.title,

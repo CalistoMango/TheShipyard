@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-
-// 48 hour voting window from rules
-const VOTING_WINDOW_MS = 48 * 60 * 60 * 1000;
+import { calculateVoteEndTime } from "~/lib/time";
 
 // POST /api/builds/[id]/approve - Admin approves build to start voting
 export async function POST(
@@ -45,7 +43,7 @@ export async function POST(
     }
 
     // Set voting window
-    const voteEndsAt = new Date(Date.now() + VOTING_WINDOW_MS);
+    const voteEndsAt = calculateVoteEndTime();
 
     // Update build to voting status
     const { error: updateError } = await supabase

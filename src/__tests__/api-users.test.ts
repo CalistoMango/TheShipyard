@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 const API_BASE = process.env.TEST_API_URL || "http://localhost:3000";
 const AUTH_TOKEN = process.env.TEST_AUTH_TOKEN;
 const AUTH_FID = process.env.TEST_AUTH_FID ? Number(process.env.TEST_AUTH_FID) : null;
-const AUTH_HEADERS = AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {};
+const AUTH_HEADERS: Record<string, string> = AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {};
 
 describe("API: /api/users", () => {
   describe("GET /api/users", () => {

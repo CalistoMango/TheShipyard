@@ -31,9 +31,15 @@ export async function validateAuth(request: NextRequest): Promise<AuthResult> {
   const token = authHeader.slice(7); // Remove "Bearer " prefix
 
   try {
+    // SECURITY: Require NEXT_PUBLIC_URL in production to prevent Host header spoofing
+    if (!process.env.NEXT_PUBLIC_URL && process.env.NODE_ENV === "production") {
+      console.error("Auth validation failed: NEXT_PUBLIC_URL not configured in production");
+      return { authenticated: false, fid: null, error: "Server configuration error" };
+    }
+
     const domain = process.env.NEXT_PUBLIC_URL
       ? new URL(process.env.NEXT_PUBLIC_URL).hostname
-      : request.headers.get("host") || "localhost";
+      : "localhost"; // Only used in development
 
     const payload = await quickAuthClient.verifyJwt({ token, domain });
 

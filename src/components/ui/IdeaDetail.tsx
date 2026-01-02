@@ -433,12 +433,18 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
       if (!recordRes.ok) {
         console.error("Failed to record refund in database:", await recordRes.json());
         // Don't throw - the on-chain tx succeeded
+      } else {
+        console.log("Refund recorded successfully");
       }
 
-      // Refresh detail data
+      // Small delay to ensure database is updated before refresh
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Refresh detail data to update UI
       const refreshRes = await fetch(`/api/ideas/${initialIdea.id}`);
       if (refreshRes.ok) {
         const refreshData = await refreshRes.json();
+        console.log("Refreshed idea data:", refreshData.data?.fundingHistory?.length, "funding entries");
         setDetailData(refreshData.data);
       }
     } catch (error) {

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-import { fetchUserInfo } from "~/lib/neynar";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
 import { verifyFundingTransaction } from "~/lib/vault-signer";
+import { ensureUserExists, getDisplayName } from "~/lib/user";
+import { parseId } from "~/lib/utils";
 
 interface FundRequest {
   user_fid: number;
@@ -22,11 +23,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const ideaId = parseInt(id, 10);
-
-  if (isNaN(ideaId)) {
-    return NextResponse.json({ error: "Invalid idea ID" }, { status: 400 });
+  const parsed = parseId(id, "idea ID");
+  if (!parsed.valid) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
+  const ideaId = parsed.id;
 
   try {
     // Validate authentication
@@ -78,35 +79,7 @@ export async function POST(
     }
 
     // Ensure user exists with profile info
-    const { data: existingUser } = await supabase
-      .from("users")
-      .select("fid, username")
-      .eq("fid", body.user_fid)
-      .single();
-
-    if (!existingUser) {
-      // Fetch user info from Neynar before creating
-      const userInfo = await fetchUserInfo(body.user_fid);
-      await supabase.from("users").insert({
-        fid: body.user_fid,
-        username: userInfo?.username || null,
-        display_name: userInfo?.display_name || null,
-        pfp_url: userInfo?.pfp_url || null,
-      });
-    } else if (!existingUser.username) {
-      // Update user if username is missing
-      const userInfo = await fetchUserInfo(body.user_fid);
-      if (userInfo?.username) {
-        await supabase
-          .from("users")
-          .update({
-            username: userInfo.username,
-            display_name: userInfo.display_name,
-            pfp_url: userInfo.pfp_url,
-          })
-          .eq("fid", body.user_fid);
-      }
-    }
+    await ensureUserExists(body.user_fid);
 
     // SECURITY: Verify on-chain transaction if tx_hash is provided
     // This prevents forged funding amounts
@@ -277,10 +250,11 @@ export async function GET(
     }
 
     // Transform to FundingEntry format
+    // NOTE: Supabase single-row joins return objects, not arrays
     const fundingHistory = funding.map((f) => {
-      const user = (f.users as unknown as { username: string | null; display_name: string | null }[] | null)?.[0] ?? null;
+      const user = f.users as unknown as { username: string | null; display_name: string | null } | null;
       return {
-        user: user?.display_name || user?.username || `fid:${f.funder_fid}`,
+        user: getDisplayName(user, f.funder_fid),
         user_fid: f.funder_fid,
         amount: Number(f.amount),
         created_at: f.created_at,

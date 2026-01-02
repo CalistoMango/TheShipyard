@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { getAdminFids } from "~/lib/admin";
 import { sendPushNotification } from "~/lib/notifications";
-import { fetchUserInfo } from "~/lib/neynar";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
+import { ensureUserExists } from "~/lib/user";
+import { parseId } from "~/lib/utils";
 
 interface ReportRequest {
   url: string;
@@ -24,14 +25,14 @@ export async function POST(
     }
 
     const { id } = await params;
-    const ideaId = parseInt(id, 10);
-
-    if (isNaN(ideaId)) {
+    const parsed = parseId(id, "idea ID");
+    if (!parsed.valid) {
       return NextResponse.json(
-        { data: null, error: "Invalid idea ID" },
+        { data: null, error: parsed.error },
         { status: 400 }
       );
     }
+    const ideaId = parsed.id;
 
     const body = (await request.json()) as ReportRequest;
 
@@ -84,33 +85,7 @@ export async function POST(
     }
 
     // Ensure reporter user exists with profile info
-    const { data: existingUser } = await supabase
-      .from("users")
-      .select("fid, username")
-      .eq("fid", body.reporter_fid)
-      .single();
-
-    if (!existingUser) {
-      const userInfo = await fetchUserInfo(body.reporter_fid);
-      await supabase.from("users").insert({
-        fid: body.reporter_fid,
-        username: userInfo?.username || null,
-        display_name: userInfo?.display_name || null,
-        pfp_url: userInfo?.pfp_url || null,
-      });
-    } else if (!existingUser.username) {
-      const userInfo = await fetchUserInfo(body.reporter_fid);
-      if (userInfo?.username) {
-        await supabase
-          .from("users")
-          .update({
-            username: userInfo.username,
-            display_name: userInfo.display_name,
-            pfp_url: userInfo.pfp_url,
-          })
-          .eq("fid", body.reporter_fid);
-      }
-    }
+    await ensureUserExists(body.reporter_fid);
 
     // Check for duplicate report from same user for same idea
     const { data: existingReport } = await supabase

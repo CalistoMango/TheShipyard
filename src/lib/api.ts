@@ -1,4 +1,4 @@
-import { sdk } from "@farcaster/miniapp-sdk";
+import sdk from "@farcaster/miniapp-sdk";
 
 /**
  * Get auth headers for authenticated API calls

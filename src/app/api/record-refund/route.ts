@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
 import { verifyRefundTransaction } from "~/lib/vault-signer";
-import { REFUND_DELAY_DAYS } from "~/lib/constants";
+import { checkRefundEligibility } from "~/lib/refund";
+import { checkTxHashNotUsed, recordTxHashUsed, verifyOnChainDelta } from "~/lib/transactions";
+import { AMOUNT_TOLERANCE_USDC } from "~/lib/constants";
 
 interface RecordRefundRequest {
   user_fid: number;
@@ -69,26 +71,15 @@ export async function POST(request: NextRequest) {
     const supabase = createServerClient();
 
     // CRITICAL: Check if this tx_hash has EVER been used for a refund claim
-    // This prevents replay of ANY older transaction, not just the last one
-    // Uses a dedicated history table for complete tx_hash tracking
-    const { data: existingTx } = await supabase
-      .from("used_claim_tx")
-      .select("tx_hash")
-      .eq("tx_hash", body.tx_hash)
-      .eq("claim_type", "refund")
-      .single();
-
-    if (existingTx) {
-      return NextResponse.json(
-        { error: "Refund transaction has already been recorded" },
-        { status: 409 }
-      );
+    const txCheck = await checkTxHashNotUsed(body.tx_hash, "refund", body.user_fid);
+    if (txCheck.used) {
+      return NextResponse.json({ error: txCheck.error }, { status: 409 });
     }
 
-    // Also check legacy last_refund_tx_hash for backwards compatibility
+    // Fetch user for claimed_refunds tracking
     const { data: user, error: userFetchError } = await supabase
       .from("users")
-      .select("claimed_refunds, last_refund_tx_hash")
+      .select("claimed_refunds")
       .eq("fid", body.user_fid)
       .single();
 
@@ -97,14 +88,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Failed to fetch user" },
         { status: 500 }
-      );
-    }
-
-    // Legacy check - also reject if matches last_refund_tx_hash
-    if (user?.last_refund_tx_hash === body.tx_hash) {
-      return NextResponse.json(
-        { error: "Refund transaction has already been recorded" },
-        { status: 409 }
       );
     }
 
@@ -142,7 +125,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Filter to only funding from refund-eligible ideas (inactive for REFUND_DELAY_DAYS)
+    // Filter to only funding from refund-eligible ideas using centralized function
     const eligibleFunding = (allFunding || []).filter((f) => {
       const ideaInfo = f.ideas as unknown as {
         id: number;
@@ -151,9 +134,12 @@ export async function POST(request: NextRequest) {
         created_at: string;
         pool: number;
       };
-      const lastActivity = new Date(ideaInfo.updated_at || ideaInfo.created_at);
-      const daysSince = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
-      return daysSince >= REFUND_DELAY_DAYS;
+      const { eligible } = checkRefundEligibility({
+        status: ideaInfo.status,
+        updated_at: ideaInfo.updated_at,
+        created_at: ideaInfo.created_at,
+      });
+      return eligible;
     });
 
     if (eligibleFunding.length === 0) {
@@ -167,16 +153,15 @@ export async function POST(request: NextRequest) {
     const totalEligibleUsdc = eligibleFunding.reduce((sum, f) => sum + Number(f.amount), 0);
 
     // SECURITY: Verify on-chain delta matches eligible funding
-    // Allow small tolerance for rounding (0.01 USDC)
-    const tolerance = 0.01;
-    if (verification.amount > 0n && Math.abs(onChainDeltaUsdc - totalEligibleUsdc) > tolerance) {
+    const deltaCheck = verifyOnChainDelta(verification.amount, totalEligibleUsdc, AMOUNT_TOLERANCE_USDC);
+    if (!deltaCheck.matches) {
       console.error(
-        `On-chain delta mismatch: on-chain=${onChainDeltaUsdc}, eligible=${totalEligibleUsdc}`
+        `On-chain delta mismatch: on-chain=${deltaCheck.onChainUsdc}, eligible=${totalEligibleUsdc}`
       );
       return NextResponse.json(
         {
           error: "On-chain refund amount does not match eligible funding",
-          on_chain_delta: onChainDeltaUsdc,
+          on_chain_delta: deltaCheck.onChainUsdc,
           eligible_total: totalEligibleUsdc,
         },
         { status: 400 }
@@ -198,27 +183,11 @@ export async function POST(request: NextRequest) {
 
     // FIRST: Record the tx_hash in history table BEFORE making any changes
     // This prevents race conditions where another request could slip through
-    const { error: insertTxError } = await supabase
-      .from("used_claim_tx")
-      .insert({
-        tx_hash: body.tx_hash,
-        user_fid: body.user_fid,
-        claim_type: "refund",
-        amount: onChainDeltaUsdc,
-      });
-
-    if (insertTxError) {
-      // If insert fails due to unique constraint, tx was already used
-      if (insertTxError.code === "23505") {
-        return NextResponse.json(
-          { error: "Refund transaction has already been recorded" },
-          { status: 409 }
-        );
-      }
-      console.error("Error recording tx_hash:", insertTxError);
+    const txRecord = await recordTxHashUsed(body.tx_hash, "refund", body.user_fid, onChainDeltaUsdc);
+    if (!txRecord.success) {
       return NextResponse.json(
-        { error: "Failed to record transaction" },
-        { status: 500 }
+        { error: txRecord.error },
+        { status: txRecord.alreadyUsed ? 409 : 500 }
       );
     }
 

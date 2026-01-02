@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-import { REFUND_DELAY_DAYS } from "~/lib/constants";
 import { validateAuth } from "~/lib/auth";
+import { checkRefundEligibility } from "~/lib/refund";
+import { parseId } from "~/lib/utils";
 
 /**
  * GET /api/users/[fid] - Get user profile and stats
@@ -14,11 +15,11 @@ export async function GET(
   { params }: { params: Promise<{ fid: string }> }
 ) {
   const { fid } = await params;
-  const userFid = parseInt(fid, 10);
-
-  if (isNaN(userFid)) {
-    return NextResponse.json({ error: "Invalid FID" }, { status: 400 });
+  const parsed = parseId(fid, "FID");
+  if (!parsed.valid) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
+  const userFid = parsed.id;
 
   // Check if requester is viewing their own profile
   const auth = await validateAuth(request);
@@ -133,7 +134,8 @@ export async function GET(
         upvotes: i.upvote_count,
       })) || [],
       recent_builds: builds?.map((b) => {
-        const idea = (b.ideas as unknown as { title: string; pool: number }[] | null)?.[0] ?? null;
+        // Supabase returns single-row joins as objects, not arrays
+        const idea = b.ideas as unknown as { title: string; pool: number } | null;
         return {
           id: b.id,
           idea_id: b.idea_id,
@@ -157,15 +159,16 @@ export async function GET(
           created_at: string;
         } | null;
 
-        // Calculate refund eligibility (REFUND_DELAY_DAYS since last activity, idea still open)
-        let refundEligible = false;
-        let daysUntilRefund = 0;
-        if (idea && idea.status === "open") {
-          const lastActivity = new Date(idea.updated_at || idea.created_at);
-          const daysSinceActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
-          refundEligible = daysSinceActivity >= REFUND_DELAY_DAYS;
-          daysUntilRefund = Math.max(0, Math.ceil(REFUND_DELAY_DAYS - daysSinceActivity));
-        }
+        // Calculate refund eligibility using centralized function
+        const refundInfo = idea
+          ? checkRefundEligibility({
+              status: idea.status,
+              updated_at: idea.updated_at,
+              created_at: idea.created_at,
+            })
+          : { eligible: false, daysUntilRefund: 0 };
+        const refundEligible = refundInfo.eligible;
+        const daysUntilRefund = refundInfo.daysUntilRefund;
 
         return {
           idea_id: idea?.id,

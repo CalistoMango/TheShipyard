@@ -47,18 +47,19 @@ export async function GET(
       return NextResponse.json({ error: "Build not found" }, { status: 404 });
     }
 
-    const user = (build.users as unknown as {
+    // Supabase single-row joins return objects, not arrays
+    const user = build.users as unknown as {
       username: string | null;
       display_name: string | null;
       pfp_url: string | null;
       streak: number;
-    }[] | null)?.[0] ?? null;
-    const idea = (build.ideas as unknown as {
+    } | null;
+    const idea = build.ideas as unknown as {
       title: string;
       description: string;
       pool: number;
       category: string;
-    }[] | null)?.[0] ?? null;
+    } | null;
 
     // Calculate voting progress
     const totalVotes = build.votes_approve + build.votes_reject;

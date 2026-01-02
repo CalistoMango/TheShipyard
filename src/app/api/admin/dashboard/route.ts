@@ -66,9 +66,10 @@ export async function GET(request: NextRequest) {
       .eq("status", "voting");
 
     // Transform data
+    // NOTE: Supabase single-row joins return objects, not arrays
     const builds = (pendingBuilds || []).map((b) => {
-      const idea = (b.ideas as unknown as { title: string }[] | null)?.[0];
-      const user = (b.users as unknown as { username: string | null; display_name: string | null }[] | null)?.[0];
+      const idea = b.ideas as unknown as { title: string } | null;
+      const user = b.users as unknown as { username: string | null; display_name: string | null } | null;
       return {
         id: b.id,
         idea_id: b.idea_id,
@@ -82,8 +83,8 @@ export async function GET(request: NextRequest) {
     });
 
     const reports = (pendingReports || []).map((r) => {
-      const idea = (r.ideas as unknown as { title: string }[] | null)?.[0];
-      const user = (r.users as unknown as { username: string | null; display_name: string | null }[] | null)?.[0];
+      const idea = r.ideas as unknown as { title: string } | null;
+      const user = r.users as unknown as { username: string | null; display_name: string | null } | null;
       return {
         id: r.id,
         idea_id: r.idea_id,

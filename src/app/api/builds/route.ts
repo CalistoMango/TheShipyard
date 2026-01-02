@@ -2,11 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { getAdminFids } from "~/lib/admin";
 import { sendPushNotification } from "~/lib/notifications";
-import { fetchUserInfo } from "~/lib/neynar";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
-
-// 24 hour cooldown after rejection
-const REJECTION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+import { ensureUserExists, getDisplayName } from "~/lib/user";
+import { checkRejectionCooldown } from "~/lib/time";
 
 interface SubmitBuildRequest {
   idea_id: number;
@@ -60,33 +58,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Ensure builder user exists with profile info
-    const { data: existingUser } = await supabase
-      .from("users")
-      .select("fid, username")
-      .eq("fid", body.builder_fid)
-      .single();
-
-    if (!existingUser) {
-      const userInfo = await fetchUserInfo(body.builder_fid);
-      await supabase.from("users").insert({
-        fid: body.builder_fid,
-        username: userInfo?.username || null,
-        display_name: userInfo?.display_name || null,
-        pfp_url: userInfo?.pfp_url || null,
-      });
-    } else if (!existingUser.username) {
-      const userInfo = await fetchUserInfo(body.builder_fid);
-      if (userInfo?.username) {
-        await supabase
-          .from("users")
-          .update({
-            username: userInfo.username,
-            display_name: userInfo.display_name,
-            pfp_url: userInfo.pfp_url,
-          })
-          .eq("fid", body.builder_fid);
-      }
-    }
+    await ensureUserExists(body.builder_fid);
 
     // Check for existing pending/voting builds from this builder for this idea
     const { data: existingBuild } = await supabase
@@ -119,16 +91,12 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (rejectedBuild) {
-      const rejectedAt = new Date(rejectedBuild.updated_at).getTime();
-      const cooldownEnds = rejectedAt + REJECTION_COOLDOWN_MS;
-      const now = Date.now();
-
-      if (now < cooldownEnds) {
-        const hoursLeft = Math.ceil((cooldownEnds - now) / (60 * 60 * 1000));
+      const cooldown = checkRejectionCooldown(rejectedBuild.updated_at);
+      if (cooldown.active) {
         return NextResponse.json(
           {
-            error: `Cooldown active after rejection. Try again in ${hoursLeft} hours.`,
-            cooldown_ends: new Date(cooldownEnds).toISOString(),
+            error: `Cooldown active after rejection. Try again in ${cooldown.hoursRemaining} hours.`,
+            cooldown_ends: cooldown.cooldownEnds.toISOString(),
           },
           { status: 400 }
         );
@@ -237,16 +205,17 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform to API format
+    // NOTE: Supabase single-row joins return objects, not arrays
     const transformed = builds.map((b) => {
-      const user = (b.users as unknown as { username: string | null; display_name: string | null; pfp_url: string | null }[] | null)?.[0] ?? null;
-      const idea = (b.ideas as unknown as { title: string; pool: number }[] | null)?.[0] ?? null;
+      const user = b.users as unknown as { username: string | null; display_name: string | null; pfp_url: string | null } | null;
+      const idea = b.ideas as unknown as { title: string; pool: number } | null;
       return {
         id: b.id,
         idea_id: b.idea_id,
         idea_title: idea?.title || "Unknown",
         idea_pool: idea?.pool ? Number(idea.pool) : 0,
         builder_fid: b.builder_fid,
-        builder_name: user?.display_name || user?.username || `fid:${b.builder_fid}`,
+        builder_name: getDisplayName(user, b.builder_fid),
         builder_pfp: user?.pfp_url || null,
         url: b.url,
         description: b.description,

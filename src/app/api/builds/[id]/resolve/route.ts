@@ -76,7 +76,8 @@ export async function POST(
       }
     }
 
-    const idea = (build.ideas as unknown as { pool: number; submitter_fid: number | null }[] | null)?.[0] ?? null;
+    // Supabase single-row joins return objects, not arrays
+    const idea = build.ideas as unknown as { pool: number; submitter_fid: number | null } | null;
     const pool = idea ? Number(idea.pool) : 0;
     const submitterFid = idea?.submitter_fid;
 

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
 import { verifyRewardTransaction } from "~/lib/vault-signer";
-import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT } from "~/lib/constants";
+import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT, AMOUNT_TOLERANCE_USDC } from "~/lib/constants";
+import { checkTxHashNotUsed, recordTxHashUsed, verifyOnChainDelta } from "~/lib/transactions";
 
 interface RecordRewardRequest {
   user_fid: number;
@@ -65,39 +66,15 @@ export async function POST(request: NextRequest) {
     const supabase = createServerClient();
 
     // CRITICAL: Check if this tx_hash has EVER been used for a reward claim
-    // This prevents replay of ANY older transaction, not just the last one
-    const { data: existingTx } = await supabase
-      .from("used_claim_tx")
-      .select("tx_hash")
-      .eq("tx_hash", body.tx_hash)
-      .eq("claim_type", "reward")
-      .single();
-
-    if (existingTx) {
-      return NextResponse.json(
-        { error: "Reward transaction has already been recorded" },
-        { status: 409 }
-      );
+    const txCheck = await checkTxHashNotUsed(body.tx_hash, "reward", body.user_fid);
+    if (txCheck.used) {
+      return NextResponse.json({ error: txCheck.error }, { status: 409 });
     }
 
-    // Also check legacy: idea with this tx_hash or user with this last_reward_tx_hash
-    const { data: existingIdeaClaim } = await supabase
-      .from("ideas")
-      .select("id")
-      .eq("reward_claim_tx_hash", body.tx_hash)
-      .limit(1)
-      .single();
-
-    if (existingIdeaClaim) {
-      return NextResponse.json(
-        { error: "Reward transaction has already been recorded" },
-        { status: 409 }
-      );
-    }
-
+    // Fetch user for claimed_rewards tracking
     const { data: user, error: userFetchError } = await supabase
       .from("users")
-      .select("claimed_rewards, last_reward_tx_hash")
+      .select("claimed_rewards")
       .eq("fid", body.user_fid)
       .single();
 
@@ -106,14 +83,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Failed to fetch user" },
         { status: 500 }
-      );
-    }
-
-    // Legacy check
-    if (user?.last_reward_tx_hash === body.tx_hash) {
-      return NextResponse.json(
-        { error: "Reward transaction has already been recorded" },
-        { status: 409 }
       );
     }
 
@@ -192,16 +161,15 @@ export async function POST(request: NextRequest) {
     }
 
     // SECURITY: Verify on-chain delta matches eligible rewards
-    // Allow small tolerance for rounding (0.01 USDC)
-    const tolerance = 0.01;
-    if (verification.amount > 0n && Math.abs(onChainDeltaUsdc - totalEligibleRewards) > tolerance) {
+    const deltaCheck = verifyOnChainDelta(verification.amount, totalEligibleRewards, AMOUNT_TOLERANCE_USDC);
+    if (!deltaCheck.matches) {
       console.error(
-        `On-chain delta mismatch: on-chain=${onChainDeltaUsdc}, eligible=${totalEligibleRewards}`
+        `On-chain delta mismatch: on-chain=${deltaCheck.onChainUsdc}, eligible=${totalEligibleRewards}`
       );
       return NextResponse.json(
         {
           error: "On-chain reward amount does not match eligible rewards",
-          on_chain_delta: onChainDeltaUsdc,
+          on_chain_delta: deltaCheck.onChainUsdc,
           eligible_total: totalEligibleRewards,
         },
         { status: 400 }
@@ -209,27 +177,11 @@ export async function POST(request: NextRequest) {
     }
 
     // FIRST: Record the tx_hash in history table BEFORE making any changes
-    const { error: insertTxError } = await supabase
-      .from("used_claim_tx")
-      .insert({
-        tx_hash: body.tx_hash,
-        user_fid: body.user_fid,
-        claim_type: "reward",
-        amount: onChainDeltaUsdc,
-      });
-
-    if (insertTxError) {
-      // If insert fails due to unique constraint, tx was already used
-      if (insertTxError.code === "23505") {
-        return NextResponse.json(
-          { error: "Reward transaction has already been recorded" },
-          { status: 409 }
-        );
-      }
-      console.error("Error recording tx_hash:", insertTxError);
+    const txRecord = await recordTxHashUsed(body.tx_hash, "reward", body.user_fid, onChainDeltaUsdc);
+    if (!txRecord.success) {
       return NextResponse.json(
-        { error: "Failed to record transaction" },
-        { status: 500 }
+        { error: txRecord.error },
+        { status: txRecord.alreadyUsed ? 409 : 500 }
       );
     }
 

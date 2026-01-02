@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import type { DbIdea, DbUser, DbFunding, Idea, FundingEntry, WinningBuild } from "~/lib/types";
-import { REFUND_DELAY_DAYS } from "~/lib/constants";
+import { checkRefundEligibility } from "~/lib/refund";
+import { parseId } from "~/lib/utils";
 
 interface IdeaDetailResponse {
   idea: Idea;
@@ -16,14 +17,14 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const ideaId = parseInt(id, 10);
-
-    if (isNaN(ideaId)) {
+    const parsed = parseId(id, "idea ID");
+    if (!parsed.valid) {
       return NextResponse.json(
-        { data: null, error: "Invalid idea ID" },
+        { data: null, error: parsed.error },
         { status: 400 }
       );
     }
+    const ideaId = parsed.id;
 
     const supabase = createServerClient();
 
@@ -70,13 +71,12 @@ export async function GET(
       .eq("idea_id", ideaId)
       .is("refunded_at", null);
 
-    // Calculate refund eligibility (REFUND_DELAY_DAYS since last activity, idea must be open)
-    let refundAvailable = false;
-    if (row.status === "open") {
-      const lastActivity = new Date(row.updated_at || row.created_at);
-      const daysSinceActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
-      refundAvailable = daysSinceActivity >= REFUND_DELAY_DAYS;
-    }
+    // Calculate refund eligibility
+    const { eligible: refundAvailable } = checkRefundEligibility({
+      status: row.status,
+      updated_at: row.updated_at,
+      created_at: row.created_at,
+    });
 
     // Transform idea
     const idea: Idea = {
@@ -110,12 +110,12 @@ export async function GET(
         .single();
 
       if (buildData) {
-        const build = buildData as unknown as { id: string; url: string; builder_fid: number; users: { username: string | null; display_name: string | null }[] | null };
-        const builderUser = build.users?.[0] ?? null;
+        // Supabase single-row joins return objects, not arrays
+        const build = buildData as unknown as { id: string; url: string; builder_fid: number; users: { username: string | null; display_name: string | null } | null };
         winningBuild = {
           id: build.id,
           url: build.url,
-          builder: builderUser?.display_name || builderUser?.username || "Anonymous",
+          builder: build.users?.display_name || build.users?.username || "Anonymous",
           builder_fid: build.builder_fid,
         };
       }

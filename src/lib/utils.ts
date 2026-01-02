@@ -44,6 +44,30 @@ export function getMiniAppEmbedMetadata(ogImageUrl?: string) {
   };
 }
 
+/**
+ * Parse and validate a numeric ID from a string.
+ *
+ * @param id - The string ID to parse
+ * @param fieldName - Name of the field for error messages (default: "ID")
+ * @returns Object with parsed id or error message
+ */
+export function parseId(
+  id: string | undefined | null,
+  fieldName: string = "ID"
+): { valid: true; id: number } | { valid: false; error: string } {
+  if (!id) {
+    return { valid: false, error: `Missing ${fieldName}` };
+  }
+
+  const parsed = parseInt(id, 10);
+
+  if (isNaN(parsed) || parsed <= 0) {
+    return { valid: false, error: `Invalid ${fieldName}` };
+  }
+
+  return { valid: true, id: parsed };
+}
+
 export async function getFarcasterDomainManifest(): Promise<Manifest> {
   return {
     accountAssociation: APP_ACCOUNT_ASSOCIATION!,

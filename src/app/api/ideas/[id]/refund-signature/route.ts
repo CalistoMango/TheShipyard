@@ -3,6 +3,8 @@ import { createServerClient } from "~/lib/supabase";
 import { signRefundClaim, usdcToBaseUnits, getLastClaimedRefund } from "~/lib/vault-signer";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
 import { REFUND_DELAY_DAYS } from "~/lib/constants";
+import { checkRefundEligibility } from "~/lib/refund";
+import { parseId } from "~/lib/utils";
 
 interface RefundSignatureRequest {
   user_fid: number;
@@ -21,11 +23,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const ideaId = parseInt(id, 10);
-
-  if (isNaN(ideaId)) {
-    return NextResponse.json({ error: "Invalid idea ID" }, { status: 400 });
+  const parsed = parseId(id, "idea ID");
+  if (!parsed.valid) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
+  const ideaId = parsed.id;
 
   try {
     // Validate authentication
@@ -70,9 +72,12 @@ export async function POST(
       return NextResponse.json({ error: "Idea not found" }, { status: 404 });
     }
 
-    // Check if idea is refund-eligible (REFUND_DELAY_DAYS of inactivity)
-    const lastActivity = new Date(idea.updated_at || idea.created_at);
-    const daysSinceActivity = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
+    // Check if idea is refund-eligible using centralized function
+    const refundEligibility = checkRefundEligibility({
+      status: idea.status,
+      updated_at: idea.updated_at,
+      created_at: idea.created_at,
+    });
 
     if (idea.status !== "open") {
       return NextResponse.json(
@@ -82,12 +87,12 @@ export async function POST(
     }
 
     // REFUND_DELAY_DAYS is 0 when SKIP_REFUND_DELAY is set on testnet
-    if (daysSinceActivity < REFUND_DELAY_DAYS) {
+    if (!refundEligibility.eligible) {
       return NextResponse.json(
         {
           error: `Refunds are only available after ${REFUND_DELAY_DAYS} days of inactivity`,
-          days_since_activity: Math.floor(daysSinceActivity),
-          days_remaining: Math.ceil(REFUND_DELAY_DAYS - daysSinceActivity),
+          days_since_activity: Math.floor(refundEligibility.daysSinceActivity),
+          days_remaining: refundEligibility.daysUntilRefund,
         },
         { status: 400 }
       );
@@ -141,12 +146,15 @@ export async function POST(
       );
     }
 
-    // Filter to only ideas that are refund-eligible (inactive for REFUND_DELAY_DAYS)
+    // Filter to only ideas that are refund-eligible using centralized function
     const totalEligibleUsdc = (allEligibleFunding || []).reduce((sum, f) => {
       const ideaInfo = f.ideas as unknown as { status: string; updated_at: string; created_at: string };
-      const lastActivity = new Date(ideaInfo.updated_at || ideaInfo.created_at);
-      const daysSince = (Date.now() - lastActivity.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysSince >= REFUND_DELAY_DAYS) {
+      const { eligible } = checkRefundEligibility({
+        status: ideaInfo.status,
+        updated_at: ideaInfo.updated_at,
+        created_at: ideaInfo.created_at,
+      });
+      if (eligible) {
         return sum + Number(f.amount);
       }
       return sum;

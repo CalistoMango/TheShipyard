@@ -27,6 +27,25 @@ export const PLATFORM_FEE_PERCENT = 10; // 10% goes to the platform
  */
 export const REFUND_DELAY_DAYS = process.env.SKIP_REFUND_DELAY === "true" ? 0 : 30;
 
+// --- Time Window Configuration ---
+/**
+ * Voting window duration in milliseconds (48 hours).
+ * This is the time allowed for the community to vote on builds.
+ */
+export const VOTING_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * Rejection cooldown duration in milliseconds (24 hours).
+ * After a build is rejected, the builder must wait this long before resubmitting.
+ */
+export const REJECTION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Tolerance for on-chain amount verification in USDC.
+ * Allows for small rounding differences between DB and on-chain amounts.
+ */
+export const AMOUNT_TOLERANCE_USDC = 0.01;
+
 // --- Admin Configuration ---
 /**
  * Admin API key for protected endpoints.

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-import { fetchUserInfo } from "~/lib/neynar";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
+import { ensureUserExists } from "~/lib/user";
+import { hasVotingEnded } from "~/lib/time";
 
 interface VoteRequest {
   voter_fid: number;
@@ -58,14 +59,11 @@ export async function POST(
     }
 
     // Check if voting window has ended
-    if (build.vote_ends_at) {
-      const endsAt = new Date(build.vote_ends_at).getTime();
-      if (Date.now() > endsAt) {
-        return NextResponse.json(
-          { error: "Voting period has ended" },
-          { status: 400 }
-        );
-      }
+    if (hasVotingEnded(build.vote_ends_at)) {
+      return NextResponse.json(
+        { error: "Voting period has ended" },
+        { status: 400 }
+      );
     }
 
     // Builder cannot vote on their own build
@@ -77,33 +75,7 @@ export async function POST(
     }
 
     // Ensure voter user exists with profile info
-    const { data: existingUser } = await supabase
-      .from("users")
-      .select("fid, username")
-      .eq("fid", body.voter_fid)
-      .single();
-
-    if (!existingUser) {
-      const userInfo = await fetchUserInfo(body.voter_fid);
-      await supabase.from("users").insert({
-        fid: body.voter_fid,
-        username: userInfo?.username || null,
-        display_name: userInfo?.display_name || null,
-        pfp_url: userInfo?.pfp_url || null,
-      });
-    } else if (!existingUser.username) {
-      const userInfo = await fetchUserInfo(body.voter_fid);
-      if (userInfo?.username) {
-        await supabase
-          .from("users")
-          .update({
-            username: userInfo.username,
-            display_name: userInfo.display_name,
-            pfp_url: userInfo.pfp_url,
-          })
-          .eq("fid", body.voter_fid);
-      }
-    }
+    await ensureUserExists(body.voter_fid);
 
     // Check if user already voted
     const { data: existingVote } = await supabase
@@ -129,27 +101,15 @@ export async function POST(
         .update({ approved: body.approved })
         .eq("id", existingVote.id);
 
-      // Update vote counts on build
-      const newApprove = body.approved
-        ? build.votes_approve + 1
-        : build.votes_approve - 1;
-      const newReject = body.approved
-        ? build.votes_reject - 1
-        : build.votes_reject + 1;
-
-      await supabase
-        .from("builds")
-        .update({
-          votes_approve: Math.max(0, newApprove),
-          votes_reject: Math.max(0, newReject),
-        })
-        .eq("id", buildId);
+      // ATOMIC: Sync vote counts with actual table counts
+      const { data: counts } = await supabase
+        .rpc("sync_vote_counts", { build_id_param: buildId });
 
       return NextResponse.json({
         status: "updated",
         approved: body.approved,
-        votes_approve: Math.max(0, newApprove),
-        votes_reject: Math.max(0, newReject),
+        votes_approve: counts?.votes_approve ?? 0,
+        votes_reject: counts?.votes_reject ?? 0,
       });
     }
 
@@ -168,27 +128,15 @@ export async function POST(
       );
     }
 
-    // Update vote counts
-    const newApprove = body.approved
-      ? build.votes_approve + 1
-      : build.votes_approve;
-    const newReject = body.approved
-      ? build.votes_reject
-      : build.votes_reject + 1;
-
-    await supabase
-      .from("builds")
-      .update({
-        votes_approve: newApprove,
-        votes_reject: newReject,
-      })
-      .eq("id", buildId);
+    // ATOMIC: Sync vote counts with actual table counts
+    const { data: counts } = await supabase
+      .rpc("sync_vote_counts", { build_id_param: buildId });
 
     return NextResponse.json({
       status: "voted",
       approved: body.approved,
-      votes_approve: newApprove,
-      votes_reject: newReject,
+      votes_approve: counts?.votes_approve ?? 0,
+      votes_reject: counts?.votes_reject ?? 0,
     });
   } catch (error) {
     console.error("Vote error:", error);
