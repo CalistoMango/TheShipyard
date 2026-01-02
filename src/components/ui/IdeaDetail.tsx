@@ -405,12 +405,13 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         recipient: address,
       });
 
+      const signatureData = await signatureRes.json();
+
       if (!signatureRes.ok) {
-        const data = await signatureRes.json();
-        throw new Error(data.error || "Failed to get refund signature");
+        throw new Error(signatureData.error || "Failed to get refund signature");
       }
 
-      const { cumulativeAmount, cumulativeAmountUsdc, deadline, signature } = await signatureRes.json();
+      const { cumulativeAmount, cumulativeAmountUsdc, deadline, signature } = signatureData;
 
       // Step 2: Call claimRefund on contract
       const withdrawTx = await writeContractAsync({

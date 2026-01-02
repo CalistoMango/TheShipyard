@@ -195,6 +195,7 @@ export async function POST(
       recipient: body.recipient,
       ideaId,
       cumulativeAmount: signedClaim.cumAmt,
+      cumulativeAmountUsdc: Number(cumulativeAmount) / 1_000_000, // Used by frontend for record-refund
       deltaAmount: deltaAmount.toString(),
       deltaAmountUsdc: Number(deltaAmount) / 1_000_000,
       thisIdeaRefundUsdc,

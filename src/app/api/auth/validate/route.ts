@@ -11,10 +11,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Token is required' }, { status: 400 });
     }
 
-    // Get domain from environment or request
+    // SECURITY: Require NEXT_PUBLIC_URL in production to prevent Host header spoofing
+    if (!process.env.NEXT_PUBLIC_URL && process.env.NODE_ENV === 'production') {
+      console.error('Auth validation failed: NEXT_PUBLIC_URL not configured in production');
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+
     const domain = process.env.NEXT_PUBLIC_URL
       ? new URL(process.env.NEXT_PUBLIC_URL).hostname
-      : request.headers.get('host') || 'localhost';
+      : 'localhost'; // Only used in development
 
     try {
       // Use the official QuickAuth library to verify the JWT

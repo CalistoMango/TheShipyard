@@ -6,7 +6,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchCh
 import { VAULT_ADDRESS, vaultAbi, CHAIN_ID } from "~/lib/contracts";
 import { SUBMITTER_FEE_PERCENT } from "~/lib/constants";
 import type { Idea } from "~/lib/types";
-import { authPost } from "~/lib/api";
+import { authFetch, authPost } from "~/lib/api";
 
 interface DashboardTabProps {
   onSelectIdea: (idea: Idea) => void;
@@ -108,7 +108,8 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
 
       setLoading(true);
       try {
-        const res = await fetch(`/api/users/${userFid}`);
+        // Use authFetch to include auth token - needed for private stats like total_funded
+        const res = await authFetch(`/api/users/${userFid}`);
         if (res.ok) {
           const data = await res.json();
           setUserData(data.data);
@@ -147,12 +148,13 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
         recipient: address,
       });
 
+      const signatureData = await res.json();
+
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to get refund signature");
+        throw new Error(signatureData.error || "Failed to get refund signature");
       }
 
-      const { cumulativeAmount, cumulativeAmountUsdc, deadline, signature } = await res.json();
+      const { cumulativeAmount, cumulativeAmountUsdc, deadline, signature } = signatureData;
 
       // Submit to contract
       const txHash = await writeContractAsync({
@@ -182,8 +184,8 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
         // Don't throw - the on-chain tx succeeded, we just failed to record
       }
 
-      // Refetch user data after recording
-      const userRes = await fetch(`/api/users/${userFid}`);
+      // Refetch user data after recording (with auth for private stats)
+      const userRes = await authFetch(`/api/users/${userFid}`);
       if (userRes.ok) {
         const data = await userRes.json();
         setUserData(data.data);
@@ -219,11 +221,11 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
     );
   }
 
-  const stats = userData?.stats || {
-    ideas_submitted: 0,
-    total_funded: 0,
-    total_earnings: 0,
-    approved_builds: 0,
+  const stats = {
+    ideas_submitted: userData?.stats?.ideas_submitted ?? 0,
+    total_funded: userData?.stats?.total_funded ?? 0,
+    total_earnings: userData?.stats?.total_earnings ?? 0,
+    approved_builds: userData?.stats?.approved_builds ?? 0,
   };
 
   const recentIdeas = userData?.recent_ideas || [];

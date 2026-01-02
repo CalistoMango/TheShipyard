@@ -5,7 +5,7 @@ import { useMiniApp } from "@neynar/react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from "wagmi";
 import { VAULT_ADDRESS, vaultAbi, CHAIN_ID } from "~/lib/contracts";
 import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT } from "~/lib/constants";
-import { authPost } from "~/lib/api";
+import { authFetch, authPost } from "~/lib/api";
 
 interface ProfileTabProps {
   onOpenAdmin?: () => void;
@@ -103,8 +103,9 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
 
       try {
         // Fetch user data, admin status, and rewards in parallel
+        // Use authFetch for user data to get private stats like total_earnings
         const [userRes, adminRes, rewardsRes] = await Promise.all([
-          fetch(`/api/users/${userFid}`),
+          authFetch(`/api/users/${userFid}`),
           fetch(`/api/admin/check?fid=${userFid}`),
           fetch(`/api/claim-reward?fid=${userFid}`),
         ]);
@@ -243,12 +244,12 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
   const username = context.user.username || `fid:${context.user.fid}`;
   const pfpUrl = context.user.pfpUrl;
 
-  const stats = userData?.stats || {
-    ideas_submitted: 0,
-    total_funded: 0,
-    total_earnings: 0,
-    approved_builds: 0,
-    current_streak: 0,
+  const stats = {
+    ideas_submitted: userData?.stats?.ideas_submitted ?? 0,
+    total_funded: userData?.stats?.total_funded ?? 0,
+    total_earnings: userData?.stats?.total_earnings ?? 0,
+    approved_builds: userData?.stats?.approved_builds ?? 0,
+    current_streak: userData?.stats?.current_streak ?? 0,
   };
 
   const recentBuilds = userData?.recent_builds || [];
