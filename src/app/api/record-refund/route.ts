@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
-import { verifyRefundTransaction } from "~/lib/vault-signer";
-import { checkRefundEligibility } from "~/lib/refund";
+import { verifyRefundTransaction, toProjectId } from "~/lib/vault-signer";
 import { checkTxHashNotUsed, recordTxHashUsed, verifyOnChainDelta } from "~/lib/transactions";
 import { AMOUNT_TOLERANCE_USDC } from "~/lib/constants";
 
@@ -10,26 +9,25 @@ interface RecordRefundRequest {
   user_fid: number;
   tx_hash: string;
   amount: number; // Amount refunded in USDC (for validation)
+  idea_id: number; // v2: required - record refund for specific project
 }
 
 /**
  * POST /api/record-refund
  *
  * Record a successful refund claim after on-chain transaction.
- * This is the GLOBAL endpoint that handles cumulative refunds across ALL ideas.
+ * V2: Per-project refund recording - only marks funding for the specific idea.
  *
- * On-chain, refunds are cumulative - a single transaction claims all eligible
- * refunds. This endpoint reconciles that by:
- * 1. Verifying the tx_hash on-chain and extracting the delta amount
- * 2. Checking the tx_hash hasn't been used before (against history table)
- * 3. Verifying on-chain delta matches DB-eligible funding total
- * 4. Marking funding records as refunded
- * 5. Updating all affected idea pools
- * 6. Recording tx_hash in history table to prevent ANY future replay
+ * This endpoint:
+ * 1. Verifies the tx_hash on-chain with projectId
+ * 2. Checks the tx_hash hasn't been used before
+ * 3. Verifies on-chain amount matches DB-eligible funding for THIS idea
+ * 4. Marks funding records for THIS idea as refunded
+ * 5. Updates the specific idea's pool
+ * 6. Records tx_hash in history table
  *
  * SECURITY: Requires authentication and FID must match.
- * CRITICAL: tx_hash is checked against a history table, not just last_tx_hash.
- * CRITICAL: On-chain delta must match eligible funding to prevent drift.
+ * V2: Each (projectId, fid) pair can only claim once on-chain.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -68,6 +66,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // v2: idea_id is required
+    if (!body.idea_id) {
+      return NextResponse.json(
+        { error: "Missing required field: idea_id" },
+        { status: 400 }
+      );
+    }
+
     const supabase = createServerClient();
 
     // CRITICAL: Check if this tx_hash has EVER been used for a refund claim
@@ -91,8 +97,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // SECURITY: Verify the refund transaction on-chain before updating DB
-    const verification = await verifyRefundTransaction(body.tx_hash, body.user_fid);
+    // v2: Convert idea ID to projectId for on-chain verification
+    const projectId = toProjectId(body.idea_id);
+
+    // SECURITY: Verify the refund transaction on-chain with projectId (v2)
+    const verification = await verifyRefundTransaction(body.tx_hash, body.user_fid, projectId);
     if (!verification.verified) {
       return NextResponse.json(
         { error: verification.error || "Transaction verification failed" },
@@ -100,22 +109,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // The on-chain delta is the authoritative amount that was claimed
-    const onChainDeltaUsdc = verification.amount > 0n
+    // The on-chain amount is the authoritative amount that was claimed
+    const onChainAmountUsdc = verification.amount > 0n
       ? Number(verification.amount) / 1_000_000
       : body.amount;
 
-    // Get ALL un-refunded funding by this user for refund-eligible ideas
-    // An idea is refund-eligible if:
-    // 1. Status is "open"
-    // 2. Inactive for REFUND_DELAY_DAYS or more
-    const { data: allFunding, error: fundingError } = await supabase
+    // v2: Get funding for THIS specific idea only (not all ideas)
+    const { data: ideaFunding, error: fundingError } = await supabase
       .from("funding")
-      .select("id, amount, idea_id, created_at, ideas!inner(id, status, updated_at, created_at, pool)")
+      .select("id, amount")
       .eq("funder_fid", body.user_fid)
-      .is("refunded_at", null)
-      .eq("ideas.status", "open")
-      .order("created_at", { ascending: true }); // Process oldest funding first
+      .eq("idea_id", body.idea_id)
+      .is("refunded_at", null);
 
     if (fundingError) {
       console.error("Error fetching funding:", fundingError);
@@ -125,65 +130,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Filter to only funding from refund-eligible ideas using centralized function
-    const eligibleFunding = (allFunding || []).filter((f) => {
-      const ideaInfo = f.ideas as unknown as {
-        id: number;
-        status: string;
-        updated_at: string;
-        created_at: string;
-        pool: number;
-      };
-      const { eligible } = checkRefundEligibility({
-        status: ideaInfo.status,
-        updated_at: ideaInfo.updated_at,
-        created_at: ideaInfo.created_at,
-      });
-      return eligible;
-    });
-
-    if (eligibleFunding.length === 0) {
+    if (!ideaFunding || ideaFunding.length === 0) {
       return NextResponse.json(
-        { error: "No eligible funding found to mark as refunded" },
+        { error: "No eligible funding found for this idea" },
         { status: 400 }
       );
     }
 
-    // Calculate total eligible funding
-    const totalEligibleUsdc = eligibleFunding.reduce((sum, f) => sum + Number(f.amount), 0);
+    // Calculate total eligible funding for this idea
+    const totalEligibleUsdc = ideaFunding.reduce((sum, f) => sum + Number(f.amount), 0);
 
-    // SECURITY: Verify on-chain delta matches eligible funding
+    // SECURITY: Verify on-chain amount matches eligible funding for THIS idea
     const deltaCheck = verifyOnChainDelta(verification.amount, totalEligibleUsdc, AMOUNT_TOLERANCE_USDC);
     if (!deltaCheck.matches) {
       console.error(
-        `On-chain delta mismatch: on-chain=${deltaCheck.onChainUsdc}, eligible=${totalEligibleUsdc}`
+        `On-chain amount mismatch: on-chain=${deltaCheck.onChainUsdc}, eligible=${totalEligibleUsdc}`
       );
       return NextResponse.json(
         {
           error: "On-chain refund amount does not match eligible funding",
-          on_chain_delta: deltaCheck.onChainUsdc,
+          on_chain_amount: deltaCheck.onChainUsdc,
           eligible_total: totalEligibleUsdc,
         },
         { status: 400 }
       );
     }
 
-    // Group funding by idea to update pools correctly
-    const fundingByIdea = new Map<number, { ids: string[]; total: number; currentPool: number }>();
-    for (const f of eligibleFunding) {
-      const ideaInfo = f.ideas as unknown as { id: number; pool: number };
-      const existing = fundingByIdea.get(ideaInfo.id) || { ids: [], total: 0, currentPool: ideaInfo.pool };
-      existing.ids.push(f.id);
-      existing.total += Number(f.amount);
-      fundingByIdea.set(ideaInfo.id, existing);
-    }
-
-    const totalRefunded = eligibleFunding.reduce((sum, f) => sum + Number(f.amount), 0);
-    const allFundingIds = eligibleFunding.map((f) => f.id);
+    const fundingIds = ideaFunding.map((f) => f.id);
 
     // FIRST: Record the tx_hash in history table BEFORE making any changes
-    // This prevents race conditions where another request could slip through
-    const txRecord = await recordTxHashUsed(body.tx_hash, "refund", body.user_fid, onChainDeltaUsdc);
+    const txRecord = await recordTxHashUsed(body.tx_hash, "refund", body.user_fid, onChainAmountUsdc);
     if (!txRecord.success) {
       return NextResponse.json(
         { error: txRecord.error },
@@ -191,34 +167,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Mark all eligible funding as refunded
+    // Mark funding for THIS idea as refunded
     const { error: updateFundingError } = await supabase
       .from("funding")
       .update({
         refunded_at: new Date().toISOString(),
       })
-      .in("id", allFundingIds);
+      .in("id", fundingIds);
 
     if (updateFundingError) {
       console.error("Error updating funding records:", updateFundingError);
-      // Don't return error - tx_hash is already recorded, so this is idempotent
+      // Don't return error - tx_hash is already recorded
     }
 
-    // ATOMIC: Update all affected idea pools using RPC
-    const ideaUpdates: { id: number; refunded: number }[] = [];
-    for (const [ideaId, data] of fundingByIdea) {
-      const { error: updateIdeaError } = await supabase
-        .rpc("decrement_pool", { idea_id_param: ideaId, amount_param: data.total });
+    // Update THIS idea's pool
+    const { error: updateIdeaError } = await supabase
+      .rpc("decrement_pool", { idea_id_param: body.idea_id, amount_param: totalEligibleUsdc });
 
-      if (updateIdeaError) {
-        console.error(`Error updating idea ${ideaId} pool:`, updateIdeaError);
-      } else {
-        ideaUpdates.push({ id: ideaId, refunded: data.total });
-      }
+    if (updateIdeaError) {
+      console.error(`Error updating idea ${body.idea_id} pool:`, updateIdeaError);
     }
 
-    // Update user's claimed_refunds total and last_refund_tx_hash (for backwards compat)
-    const newClaimedRefunds = (Number(user?.claimed_refunds) || 0) + onChainDeltaUsdc;
+    // Update user's claimed_refunds total
+    const newClaimedRefunds = (Number(user?.claimed_refunds) || 0) + onChainAmountUsdc;
     const { error: updateUserError } = await supabase
       .from("users")
       .update({
@@ -229,16 +200,15 @@ export async function POST(request: NextRequest) {
 
     if (updateUserError) {
       console.error("Error updating user:", updateUserError);
-      // Don't fail - the tx_hash is already recorded
     }
 
     return NextResponse.json({
       success: true,
-      refunded_funding_count: allFundingIds.length,
-      ideas_updated: ideaUpdates.length,
-      idea_details: ideaUpdates,
-      total_refunded: totalRefunded,
-      verified_amount: onChainDeltaUsdc,
+      idea_id: body.idea_id,
+      project_id: projectId,
+      refunded_funding_count: fundingIds.length,
+      total_refunded: totalEligibleUsdc,
+      verified_amount: onChainAmountUsdc,
       tx_hash: body.tx_hash,
     });
   } catch (error) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { validateAuth, validateFidMatch } from "~/lib/auth";
-import { verifyRewardTransaction } from "~/lib/vault-signer";
+import { verifyRewardTransaction, toProjectId } from "~/lib/vault-signer";
 import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT, AMOUNT_TOLERANCE_USDC } from "~/lib/constants";
 import { checkTxHashNotUsed, recordTxHashUsed, verifyOnChainDelta } from "~/lib/transactions";
 
@@ -9,22 +9,24 @@ interface RecordRewardRequest {
   user_fid: number;
   tx_hash: string;
   amount: number; // Total amount claimed in USDC
+  idea_id: number; // v2: required - record reward for specific project
 }
 
 /**
  * POST /api/record-reward
  *
  * Record a successful reward claim after on-chain transaction.
- * This updates:
- * 1. Checks tx_hash against history table (prevents ALL replay)
- * 2. Verifies on-chain delta matches DB-eligible rewards
- * 3. Marks ideas as builder_reward_claimed or submitter_reward_claimed
+ * V2: Per-project reward recording - only marks claims for the specific idea.
+ *
+ * This endpoint:
+ * 1. Checks tx_hash against history table (prevents replay)
+ * 2. Verifies on-chain amount matches expected reward for THIS idea
+ * 3. Marks builder_reward_claimed or submitter_reward_claimed for THIS idea
  * 4. Records tx_hash in history table
  * 5. Updates user's claimed_rewards total
  *
- * CRITICAL: tx_hash is checked against history table, not just last_tx_hash.
- * CRITICAL: On-chain delta must match eligible rewards to prevent drift.
  * SECURITY: Requires authentication and FID must match.
+ * V2: Each (projectId, fid) pair can only claim once on-chain.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -63,6 +65,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // v2: idea_id is required
+    if (!body.idea_id) {
+      return NextResponse.json(
+        { error: "Missing required field: idea_id" },
+        { status: 400 }
+      );
+    }
+
     const supabase = createServerClient();
 
     // CRITICAL: Check if this tx_hash has EVER been used for a reward claim
@@ -86,8 +96,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // SECURITY: Verify the reward transaction on-chain before updating DB
-    const verification = await verifyRewardTransaction(body.tx_hash, body.user_fid);
+    // v2: Convert idea ID to projectId for on-chain verification
+    const projectId = toProjectId(body.idea_id);
+
+    // SECURITY: Verify the reward transaction on-chain with projectId (v2)
+    const verification = await verifyRewardTransaction(body.tx_hash, body.user_fid, projectId);
     if (!verification.verified) {
       return NextResponse.json(
         { error: verification.error || "Transaction verification failed" },
@@ -95,89 +108,88 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // The on-chain delta is the authoritative amount
-    const onChainDeltaUsdc = verification.amount > 0n
+    // The on-chain amount is the authoritative amount
+    const onChainAmountUsdc = verification.amount > 0n
       ? Number(verification.amount) / 1_000_000
       : body.amount;
 
-    // Find all completed ideas where user is builder (with approved build) and hasn't claimed
-    const { data: builderBuilds, error: builderError } = await supabase
-      .from("builds")
-      .select(`
-        id,
-        idea_id,
-        ideas!inner(id, status, builder_reward_claimed, pool)
-      `)
-      .eq("builder_fid", body.user_fid)
-      .eq("status", "approved");
-
-    if (builderError) {
-      console.error("Error fetching builder builds:", builderError);
-      return NextResponse.json(
-        { error: "Failed to fetch builder data" },
-        { status: 500 }
-      );
-    }
-
-    // Find all completed ideas where user is submitter and hasn't claimed
-    const { data: submittedIdeas, error: submitterError } = await supabase
+    // v2: Get the specific idea and check user's role
+    const { data: idea, error: ideaError } = await supabase
       .from("ideas")
-      .select("id, status, submitter_reward_claimed, pool")
-      .eq("submitter_fid", body.user_fid)
-      .eq("status", "completed")
-      .eq("submitter_reward_claimed", false);
+      .select("id, status, pool, submitter_fid, builder_reward_claimed, submitter_reward_claimed")
+      .eq("id", body.idea_id)
+      .single();
 
-    if (submitterError) {
-      console.error("Error fetching submitted ideas:", submitterError);
+    if (ideaError || !idea) {
+      return NextResponse.json({ error: "Idea not found" }, { status: 404 });
+    }
+
+    if (idea.status !== "completed") {
       return NextResponse.json(
-        { error: "Failed to fetch submitter data" },
-        { status: 500 }
+        { error: "Rewards are only available for completed projects" },
+        { status: 400 }
       );
     }
 
-    // Calculate expected rewards
-    let totalEligibleRewards = 0;
+    // Check if user is builder of this idea
+    const { data: builderBuild } = await supabase
+      .from("builds")
+      .select("id")
+      .eq("idea_id", body.idea_id)
+      .eq("builder_fid", body.user_fid)
+      .eq("status", "approved")
+      .maybeSingle();
 
-    const builderIdeaIds: number[] = [];
-    for (const build of builderBuilds || []) {
-      const ideaInfo = build.ideas as unknown as {
-        id: number;
-        status: string;
-        builder_reward_claimed: boolean;
-        pool: number;
-      };
-      if (ideaInfo.status === "completed" && !ideaInfo.builder_reward_claimed) {
-        builderIdeaIds.push(ideaInfo.id);
-        // Builder gets BUILDER_FEE_PERCENT of pool
-        totalEligibleRewards += Number(ideaInfo.pool) * (BUILDER_FEE_PERCENT / 100);
-      }
+    const isBuilder = !!builderBuild;
+    const isSubmitter = idea.submitter_fid === body.user_fid;
+
+    if (!isBuilder && !isSubmitter) {
+      return NextResponse.json(
+        { error: "You are not the builder or submitter of this project" },
+        { status: 400 }
+      );
     }
 
-    const submitterIdeaIds: number[] = [];
-    for (const idea of submittedIdeas || []) {
-      submitterIdeaIds.push(idea.id);
-      // Submitter gets SUBMITTER_FEE_PERCENT of pool
-      totalEligibleRewards += Number(idea.pool) * (SUBMITTER_FEE_PERCENT / 100);
+    // Calculate expected reward for THIS idea
+    let expectedReward = 0;
+    let claimBuilder = false;
+    let claimSubmitter = false;
+
+    if (isBuilder && !idea.builder_reward_claimed) {
+      expectedReward += Number(idea.pool) * (BUILDER_FEE_PERCENT / 100);
+      claimBuilder = true;
     }
 
-    // SECURITY: Verify on-chain delta matches eligible rewards
-    const deltaCheck = verifyOnChainDelta(verification.amount, totalEligibleRewards, AMOUNT_TOLERANCE_USDC);
+    if (isSubmitter && !idea.submitter_reward_claimed) {
+      expectedReward += Number(idea.pool) * (SUBMITTER_FEE_PERCENT / 100);
+      claimSubmitter = true;
+    }
+
+    if (expectedReward === 0) {
+      return NextResponse.json(
+        { error: "No unclaimed rewards available for this project" },
+        { status: 400 }
+      );
+    }
+
+    // SECURITY: Verify on-chain amount matches expected reward for THIS idea
+    const deltaCheck = verifyOnChainDelta(verification.amount, expectedReward, AMOUNT_TOLERANCE_USDC);
     if (!deltaCheck.matches) {
       console.error(
-        `On-chain delta mismatch: on-chain=${deltaCheck.onChainUsdc}, eligible=${totalEligibleRewards}`
+        `On-chain amount mismatch: on-chain=${deltaCheck.onChainUsdc}, expected=${expectedReward}`
       );
       return NextResponse.json(
         {
-          error: "On-chain reward amount does not match eligible rewards",
-          on_chain_delta: deltaCheck.onChainUsdc,
-          eligible_total: totalEligibleRewards,
+          error: "On-chain reward amount does not match expected reward",
+          on_chain_amount: deltaCheck.onChainUsdc,
+          expected_total: expectedReward,
         },
         { status: 400 }
       );
     }
 
     // FIRST: Record the tx_hash in history table BEFORE making any changes
-    const txRecord = await recordTxHashUsed(body.tx_hash, "reward", body.user_fid, onChainDeltaUsdc);
+    const txRecord = await recordTxHashUsed(body.tx_hash, "reward", body.user_fid, onChainAmountUsdc);
     if (!txRecord.success) {
       return NextResponse.json(
         { error: txRecord.error },
@@ -185,40 +197,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Mark builder rewards as claimed
-    if (builderIdeaIds.length > 0) {
-      const { error: updateBuilderError } = await supabase
-        .from("ideas")
-        .update({
-          builder_reward_claimed: true,
-          reward_claim_tx_hash: body.tx_hash,
-        })
-        .in("id", builderIdeaIds);
-
-      if (updateBuilderError) {
-        console.error("Error updating builder claims:", updateBuilderError);
-        // Don't fail - tx_hash is already recorded
-      }
+    // Update THIS idea's reward claim flags
+    const updateFields: Record<string, boolean | string> = {
+      reward_claim_tx_hash: body.tx_hash,
+    };
+    if (claimBuilder) {
+      updateFields.builder_reward_claimed = true;
+    }
+    if (claimSubmitter) {
+      updateFields.submitter_reward_claimed = true;
     }
 
-    // Mark submitter rewards as claimed
-    if (submitterIdeaIds.length > 0) {
-      const { error: updateSubmitterError } = await supabase
-        .from("ideas")
-        .update({
-          submitter_reward_claimed: true,
-          reward_claim_tx_hash: body.tx_hash,
-        })
-        .in("id", submitterIdeaIds);
+    const { error: updateIdeaError } = await supabase
+      .from("ideas")
+      .update(updateFields)
+      .eq("id", body.idea_id);
 
-      if (updateSubmitterError) {
-        console.error("Error updating submitter claims:", updateSubmitterError);
-        // Don't fail - tx_hash is already recorded
-      }
+    if (updateIdeaError) {
+      console.error("Error updating idea claims:", updateIdeaError);
+      // Don't fail - tx_hash is already recorded
     }
 
     // Update user's claimed_rewards total
-    const newClaimedRewards = (Number(user?.claimed_rewards) || 0) + onChainDeltaUsdc;
+    const newClaimedRewards = (Number(user?.claimed_rewards) || 0) + onChainAmountUsdc;
     const { error: updateUserError } = await supabase
       .from("users")
       .update({
@@ -229,14 +230,15 @@ export async function POST(request: NextRequest) {
 
     if (updateUserError) {
       console.error("Error updating user:", updateUserError);
-      // Don't fail - tx_hash is already recorded
     }
 
     return NextResponse.json({
       success: true,
-      builder_ideas_claimed: builderIdeaIds.length,
-      submitter_ideas_claimed: submitterIdeaIds.length,
-      total_claimed: onChainDeltaUsdc,
+      idea_id: body.idea_id,
+      project_id: projectId,
+      builder_reward_claimed: claimBuilder,
+      submitter_reward_claimed: claimSubmitter,
+      total_claimed: onChainAmountUsdc,
       tx_hash: body.tx_hash,
     });
   } catch (error) {

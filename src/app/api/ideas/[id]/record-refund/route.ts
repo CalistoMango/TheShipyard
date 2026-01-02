@@ -3,14 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 /**
  * POST /api/ideas/[id]/record-refund
  *
- * @deprecated Use POST /api/record-refund instead.
- *
- * This per-idea endpoint is DEPRECATED because on-chain refunds are cumulative
- * across ALL eligible ideas. A single on-chain refund transaction claims all
- * eligible funding at once, so recording must also be global.
- *
- * This endpoint now redirects to the global /api/record-refund endpoint.
- * The idea ID in the URL is ignored - all eligible funding will be marked.
+ * V2: Per-project refund recording - uses the idea ID from the URL.
+ * This endpoint forwards to /api/record-refund with the idea_id included.
  */
 export async function POST(
   request: NextRequest,
@@ -23,7 +17,7 @@ export async function POST(
     return NextResponse.json({ error: "Invalid idea ID" }, { status: 400 });
   }
 
-  // Clone the request and forward to the global endpoint
+  // Clone the request and forward to the global endpoint with idea_id
   const body = await request.json();
   const globalUrl = new URL("/api/record-refund", request.url);
 
@@ -31,19 +25,14 @@ export async function POST(
   const headers = new Headers(request.headers);
   headers.set("Content-Type", "application/json");
 
+  // v2: Include idea_id from URL path
   const response = await fetch(globalUrl.toString(), {
     method: "POST",
     headers,
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, idea_id: ideaId }),
   });
 
   const result = await response.json();
-
-  // Add deprecation warning to response
-  if (result.success) {
-    result.warning = "This endpoint is deprecated. Use POST /api/record-refund instead.";
-    result.deprecated_idea_id = ideaId;
-  }
 
   return NextResponse.json(result, { status: response.status });
 }
