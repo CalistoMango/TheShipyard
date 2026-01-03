@@ -970,14 +970,14 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
           {/* Original Cast */}
           {originalCast && (
             <CastLink castHash={idea.cast_hash} className="block mb-4">
-              <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-3 hover:border-gray-600 transition-colors">
-                <div className="flex items-center gap-2 mb-2">
+              <div className="border border-gray-700 rounded-lg overflow-hidden hover:border-gray-600 transition-colors">
+                <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/50">
                   {originalCast.author_pfp && (
                     <img src={originalCast.author_pfp} alt="" className="w-6 h-6 rounded-full" />
                   )}
-                  <span className="text-gray-300 text-sm font-medium">{originalCast.author}</span>
+                  <span className="text-white text-sm font-bold">{originalCast.author}</span>
                 </div>
-                <p className="text-gray-300 text-sm whitespace-pre-wrap">{originalCast.text}</p>
+                <p className="text-gray-300 text-sm whitespace-pre-wrap px-3 py-3">{originalCast.text}</p>
               </div>
             </CastLink>
           )}
