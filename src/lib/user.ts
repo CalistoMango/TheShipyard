@@ -5,7 +5,7 @@
  */
 
 import { createServerClient } from "./supabase";
-import { fetchUserInfo } from "./neynar";
+import { fetchUserInfo, getNeynarClient } from "./neynar";
 
 /**
  * User info returned from Neynar
@@ -81,4 +81,59 @@ export function getDisplayName(
   if (user?.username) return user.username;
   if (fid !== undefined) return `fid:${fid}`;
   return fallback;
+}
+
+/**
+ * Refresh all user profiles from Neynar.
+ *
+ * Fetches fresh profile data (username, display_name, pfp_url) for all users
+ * and updates the database. Processes in batches to respect API limits.
+ *
+ * @returns Stats about the refresh operation
+ */
+export async function refreshAllProfiles(): Promise<{
+  updated: number;
+  failed: number;
+  total: number;
+}> {
+  const supabase = createServerClient();
+  const client = getNeynarClient();
+
+  // Get all users
+  const { data: users } = await supabase.from("users").select("fid");
+
+  if (!users?.length) return { updated: 0, failed: 0, total: 0 };
+
+  let updated = 0;
+  let failed = 0;
+
+  // Process in batches of 100 (Neynar fetchBulkUsers limit)
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < users.length; i += BATCH_SIZE) {
+    const batch = users.slice(i, i + BATCH_SIZE);
+    const fids = batch.map((u) => u.fid);
+
+    try {
+      const response = await client.fetchBulkUsers({ fids });
+
+      for (const neynarUser of response.users) {
+        const { error } = await supabase
+          .from("users")
+          .update({
+            username: neynarUser.username || null,
+            display_name: neynarUser.display_name || neynarUser.username || null,
+            pfp_url: neynarUser.pfp_url || null,
+          })
+          .eq("fid", neynarUser.fid);
+
+        if (error) failed++;
+        else updated++;
+      }
+    } catch (error) {
+      console.error("Batch profile refresh failed:", error);
+      failed += batch.length;
+    }
+  }
+
+  return { updated, failed, total: users.length };
 }

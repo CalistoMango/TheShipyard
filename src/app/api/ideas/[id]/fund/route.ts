@@ -71,9 +71,9 @@ export async function POST(
       return NextResponse.json({ error: "Idea not found" }, { status: 404 });
     }
 
-    if (idea.status !== "open") {
+    if (idea.status !== "open" && idea.status !== "racing") {
       return NextResponse.json(
-        { error: "Can only fund ideas with 'open' status" },
+        { error: "Can only fund ideas that are open or racing" },
         { status: 400 }
       );
     }
@@ -175,7 +175,7 @@ export async function POST(
     if (triggersRaceMode) {
       await supabase
         .from("ideas")
-        .update({ status: "voting" })
+        .update({ status: "racing" })
         .eq("id", ideaId);
     }
 

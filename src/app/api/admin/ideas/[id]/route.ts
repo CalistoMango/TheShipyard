@@ -103,7 +103,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Idea not found" }, { status: 404 });
     }
 
-    // Prevent deletion of ideas with pools or in voting
+    // Prevent deletion of ideas with pools or in racing
     if (Number(idea.pool) > 0) {
       return NextResponse.json(
         { error: "Cannot delete idea with active pool. Refund first." },
@@ -111,9 +111,9 @@ export async function DELETE(
       );
     }
 
-    if (idea.status === "voting") {
+    if (idea.status === "racing") {
       return NextResponse.json(
-        { error: "Cannot delete idea in voting status" },
+        { error: "Cannot delete idea in racing status" },
         { status: 400 }
       );
     }

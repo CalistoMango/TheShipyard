@@ -96,7 +96,8 @@ export async function GET(
     const neynarData = await response.json();
 
     // Handle different response structures
-    const replies = neynarData.conversation?.cast?.direct_replies ||
+    const originalCast = neynarData.conversation?.cast;
+    const replies = originalCast?.direct_replies ||
                     neynarData.direct_replies ||
                     [];
 
@@ -107,8 +108,17 @@ export async function GET(
       time: formatTimeAgo(new Date(reply.timestamp)),
     }));
 
+    // Extract original cast info
+    const original = originalCast ? {
+      text: originalCast.text,
+      author: originalCast.author?.display_name || originalCast.author?.username || "Unknown",
+      author_pfp: originalCast.author?.pfp_url || null,
+      timestamp: originalCast.timestamp,
+    } : null;
+
     return NextResponse.json({
       data: comments,
+      original_cast: original,
       cast_url: `https://warpcast.com/~/conversations/${idea.cast_hash}`,
     });
   } catch (error) {

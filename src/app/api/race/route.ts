@@ -9,7 +9,7 @@ export async function GET() {
   try {
     const supabase = createServerClient();
 
-    // Get ideas in voting status (race mode)
+    // Get ideas in racing status (race mode)
     const { data: racingIdeas, error } = await supabase
       .from("ideas")
       .select(
@@ -30,7 +30,7 @@ export async function GET() {
         )
       `
       )
-      .eq("status", "voting")
+      .eq("status", "racing")
       .order("pool", { ascending: false });
 
     if (error) {

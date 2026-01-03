@@ -19,15 +19,15 @@ describe("API: /api/race", () => {
       expect(typeof json.threshold).toBe("number");
     });
 
-    it("should only return ideas in voting status", async () => {
+    it("should only return ideas in racing status", async () => {
       const res = await fetch(`${API_BASE}/api/race`);
 
       expect(res.ok).toBe(true);
       const json = await res.json();
 
-      // All returned ideas should have voting status
+      // All returned ideas should have racing status
       for (const idea of json.data) {
-        expect(idea.status).toBe("voting");
+        expect(idea.status).toBe("racing");
       }
     });
 

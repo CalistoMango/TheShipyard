@@ -36,12 +36,12 @@ describe("Refund Eligibility", () => {
       expect(result.latestFundingAt).toBeNull();
     });
 
-    it("should return not eligible when idea status is voting", () => {
+    it("should return not eligible when idea status is racing", () => {
       const funding: FundingRecord[] = [
         { id: "1", amount: 10, created_at: "2025-01-01T00:00:00Z", refunded_at: null },
       ];
 
-      const result = checkUserRefundEligibility("voting", funding);
+      const result = checkUserRefundEligibility("racing", funding);
 
       expect(result.eligible).toBe(false);
       expect(result.totalUnrefunded).toBe(0);

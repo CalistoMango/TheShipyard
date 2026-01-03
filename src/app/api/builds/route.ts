@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServerClient();
 
-    // Verify idea exists and is in race mode (voting status)
+    // Verify idea exists and is open or racing
     const { data: idea, error: ideaError } = await supabase
       .from("ideas")
       .select("id, status, title")
@@ -50,9 +50,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Idea not found" }, { status: 404 });
     }
 
-    if (idea.status !== "voting") {
+    if (idea.status !== "open" && idea.status !== "racing") {
       return NextResponse.json(
-        { error: "Can only submit builds for ideas in race mode (voting status)" },
+        { error: "Cannot submit builds for completed or already-existing ideas" },
         { status: 400 }
       );
     }

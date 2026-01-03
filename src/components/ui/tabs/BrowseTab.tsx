@@ -27,8 +27,8 @@ const getCategoryColor = (cat: Category): string => {
 };
 
 const getStatusBadge = (status: string) => {
-  if (status === "voting") {
-    return <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs rounded-full">🗳️ Voting</span>;
+  if (status === "racing") {
+    return <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs rounded-full">🏁 Racing</span>;
   }
   if (status === "completed") {
     return <span className="px-2 py-0.5 bg-green-500/20 text-green-300 text-xs rounded-full">✅ Built</span>;
@@ -87,8 +87,8 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
     return () => observer.disconnect();
   }, [handleObserver]);
 
-  // Find idea in voting status for race mode banner
-  const raceIdea = ideas.find((i) => i.status === "voting");
+  // Find idea in racing status for race mode banner
+  const raceIdea = ideas.find((i) => i.status === "racing");
 
   return (
     <div className="space-y-4">
@@ -296,7 +296,7 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-white truncate">{idea.title}</h3>
-                        {idea.status === "voting" && getStatusBadge(idea.status)}
+                        {idea.status === "racing" && getStatusBadge(idea.status)}
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>
@@ -306,16 +306,12 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                       </div>
                     </div>
                     {idea.status === "completed" ? (
-                      <div className="flex items-center">
-                        <span className="px-3 py-1.5 bg-green-500/20 text-green-300 text-sm rounded-full font-medium">
-                          ✅ Built
-                        </span>
+                      <div className="text-center">
+                        <div className="text-green-400 font-bold text-sm">✅ Built</div>
                       </div>
                     ) : idea.status === "already_exists" ? (
-                      <div className="flex items-center">
-                        <span className="px-3 py-1.5 bg-red-500/20 text-red-300 text-sm rounded-full font-medium">
-                          ⚠️ Already Exists
-                        </span>
+                      <div className="text-center">
+                        <div className="text-red-400 font-bold text-sm">⚠️ Exists</div>
                       </div>
                     ) : (
                       <div className="flex items-center gap-4 text-sm">

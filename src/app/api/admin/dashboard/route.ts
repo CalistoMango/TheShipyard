@@ -60,10 +60,10 @@ export async function GET(request: NextRequest) {
 
     const totalPool = poolData?.reduce((sum, i) => sum + (Number(i.pool) || 0), 0) || 0;
 
-    const { count: votingCount } = await supabase
+    const { count: racingCount } = await supabase
       .from("ideas")
       .select("id", { count: "exact", head: true })
-      .eq("status", "voting");
+      .eq("status", "racing");
 
     // Transform data
     // NOTE: Supabase single-row joins return objects, not arrays
@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
         stats: {
           total_ideas: totalIdeas || 0,
           total_pool: totalPool,
-          ideas_in_voting: votingCount || 0,
+          ideas_in_racing: racingCount || 0,
         },
       },
     });

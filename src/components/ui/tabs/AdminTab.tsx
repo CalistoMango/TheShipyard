@@ -33,7 +33,7 @@ interface AdminData {
   stats: {
     total_ideas: number;
     total_pool: number;
-    ideas_in_voting: number;
+    ideas_in_racing: number;
   };
 }
 
@@ -198,8 +198,8 @@ export function AdminTab() {
           <div className="text-xs text-gray-500">Total Pool</div>
         </div>
         <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 text-center">
-          <div className="text-2xl font-bold text-yellow-400">{data.stats.ideas_in_voting}</div>
-          <div className="text-xs text-gray-500">In Voting</div>
+          <div className="text-2xl font-bold text-yellow-400">{data.stats.ideas_in_racing}</div>
+          <div className="text-xs text-gray-500">Racing</div>
         </div>
       </div>
 

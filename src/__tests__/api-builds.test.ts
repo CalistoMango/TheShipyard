@@ -33,17 +33,17 @@ describe("API: /api/builds", () => {
       expect([401, 404]).toContain(res.status);
     });
 
-    it("should reject build for non-voting idea", async () => {
-      // Get an idea that's not in voting status
+    it("should reject build for completed idea", async () => {
+      // Get an idea that's completed or already_exists
       const listRes = await fetch(`${API_BASE}/api/ideas`);
       const listJson = await listRes.json();
 
-      const openIdea = listJson.data.find(
-        (i: { status: string }) => i.status === "open"
+      const closedIdea = listJson.data.find(
+        (i: { status: string }) => i.status === "completed" || i.status === "already_exists"
       );
 
-      if (!openIdea) {
-        console.log("No open idea found, skipping test");
+      if (!closedIdea) {
+        console.log("No completed/already_exists idea found, skipping test");
         return;
       }
 
@@ -51,13 +51,13 @@ describe("API: /api/builds", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          idea_id: openIdea.id,
+          idea_id: closedIdea.id,
           builder_fid: 12345,
           url: "https://example.com/build",
         }),
       });
 
-      // Either 400 (not in race mode) or 401 (no auth)
+      // Either 400 (idea closed) or 401 (no auth)
       expect([400, 401]).toContain(res.status);
     });
   });

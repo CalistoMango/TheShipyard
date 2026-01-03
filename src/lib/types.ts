@@ -2,7 +2,7 @@
 // ENUMS (matching DB)
 // ===========================================
 
-export type IdeaStatus = "open" | "voting" | "completed" | "already_exists";
+export type IdeaStatus = "open" | "racing" | "completed" | "already_exists";
 export type BuildStatus = "pending_review" | "voting" | "approved" | "rejected";
 export type Category = "games" | "tools" | "social" | "defi" | "content" | "other";
 export type WithdrawalStatus = "pending" | "completed" | "failed";

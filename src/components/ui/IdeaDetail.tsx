@@ -44,8 +44,8 @@ const getCategoryColor = (cat: Category): string => {
 };
 
 const getStatusBadge = (status: string) => {
-  if (status === "voting") {
-    return <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs rounded-full">🗳️ Voting</span>;
+  if (status === "racing") {
+    return <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs rounded-full">🏁 Racing</span>;
   }
   if (status === "completed") {
     return <span className="px-2 py-0.5 bg-green-500/20 text-green-300 text-xs rounded-full">✅ Built</span>;
@@ -56,25 +56,16 @@ const getStatusBadge = (status: string) => {
   return null;
 };
 
-function VotingSection({ ideaId: _ideaId }: { ideaId: number }) {
-  // TODO: Fetch actual build data for voting using _ideaId
+function RacingSection({ pool }: { pool: number }) {
   return (
     <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mt-4">
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-xl">🗳️</span>
-        <h3 className="font-semibold text-yellow-300">Voting in Progress</h3>
+        <span className="text-xl">🏁</span>
+        <h3 className="font-semibold text-yellow-300">Race Mode Active!</h3>
       </div>
-      <p className="text-gray-300 text-sm mb-3">
-        A build has been submitted for this idea. Community voting is in progress.
+      <p className="text-gray-300 text-sm">
+        This idea has reached ${pool.toLocaleString()} in funding. Builders are racing to claim the pool!
       </p>
-      <div className="flex gap-3">
-        <button className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 rounded-lg font-medium">
-          ✓ Approve
-        </button>
-        <button className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded-lg font-medium">
-          ✕ Reject
-        </button>
-      </div>
     </div>
   );
 }
@@ -150,6 +141,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
+  const [originalCast, setOriginalCast] = useState<{ text: string; author: string; author_pfp: string | null; timestamp: string } | null>(null);
   const [fundingStep, setFundingStep] = useState<"idle" | "approving" | "funding" | "confirming" | "done">("idle");
   const [approveTxHash, setApproveTxHash] = useState<`0x${string}` | undefined>();
   const [fundTxHash, setFundTxHash] = useState<`0x${string}` | undefined>();
@@ -242,6 +234,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         if (res.ok) {
           const data = await res.json();
           setComments(data.data || []);
+          setOriginalCast(data.original_cast || null);
         }
       } catch (error) {
         console.error("Failed to fetch comments:", error);
@@ -662,8 +655,8 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
           </div>
         </div>
 
-        {/* Actions - only show for open ideas */}
-        {idea.status === "open" && (
+        {/* Actions - show for open and racing ideas */}
+        {(idea.status === "open" || idea.status === "racing") && (
           <div className="space-y-3 mt-4">
             {/* Primary actions row */}
             <div className="flex gap-3">
@@ -690,7 +683,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
               onClick={() => setShowBuildModal(true)}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2"
             >
-              🚀 Submit Build
+              🚀 Submit Build to Claim the Pool
             </button>
             {/* Already Built button */}
             <button
@@ -877,8 +870,8 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         </div>
       )}
 
-      {/* Voting Section (if voting) */}
-      {idea.status === "voting" && <VotingSection ideaId={idea.id} />}
+      {/* Racing Section (if racing/race mode) */}
+      {idea.status === "racing" && <RacingSection pool={idea.pool} />}
 
       {/* Completed Section (if completed) */}
       {idea.status === "completed" && (
@@ -973,6 +966,21 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
               View original cast →
             </CastLink>
           </div>
+
+          {/* Original Cast */}
+          {originalCast && (
+            <CastLink castHash={idea.cast_hash} className="block mb-4">
+              <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-3 hover:border-gray-600 transition-colors">
+                <div className="flex items-center gap-2 mb-2">
+                  {originalCast.author_pfp && (
+                    <img src={originalCast.author_pfp} alt="" className="w-6 h-6 rounded-full" />
+                  )}
+                  <span className="text-gray-300 text-sm font-medium">{originalCast.author}</span>
+                </div>
+                <p className="text-gray-300 text-sm whitespace-pre-wrap">{originalCast.text}</p>
+              </div>
+            </CastLink>
+          )}
 
           {/* Recent Replies */}
           {commentsLoading ? (
