@@ -51,7 +51,7 @@ const getStatusBadge = (status: string) => {
     return <span className="px-2 py-0.5 bg-green-500/20 text-green-300 text-xs rounded-full">✅ Built</span>;
   }
   if (status === "already_exists") {
-    return <span className="px-2 py-0.5 bg-red-500/20 text-red-300 text-xs rounded-full">⚠️ Already Exists</span>;
+    return <span className="px-2 py-0.5 bg-red-500/20 text-red-300 text-xs rounded-full">Already Exists</span>;
   }
   return null;
 };
@@ -606,14 +606,12 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
       <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-5">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              <h1 className="text-xl font-bold text-white">{idea.title}</h1>
-              {getStatusBadge(idea.status)}
-            </div>
-            <div className="flex items-center gap-2 text-sm">
+            <h1 className="text-xl font-bold text-white mb-2">{idea.title}</h1>
+            <div className="flex items-center gap-2 text-sm flex-wrap">
               <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>
                 {idea.category}
               </span>
+              {getStatusBadge(idea.status)}
               <span className="text-gray-400">by</span>
               {idea.submitter_pfp ? (
                 <img src={idea.submitter_pfp} alt="" className="w-5 h-5 rounded-full" />
