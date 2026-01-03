@@ -86,31 +86,11 @@ export async function POST(
       .single();
 
     if (existingVote) {
-      // User already voted - update their vote
-      if (existingVote.approved === body.approved) {
-        return NextResponse.json({
-          status: "unchanged",
-          message: "Your vote is already recorded",
-          approved: body.approved,
-        });
-      }
-
-      // Update vote
-      await supabase
-        .from("votes")
-        .update({ approved: body.approved })
-        .eq("id", existingVote.id);
-
-      // ATOMIC: Sync vote counts with actual table counts
-      const { data: counts } = await supabase
-        .rpc("sync_vote_counts", { build_id_param: buildId });
-
-      return NextResponse.json({
-        status: "updated",
-        approved: body.approved,
-        votes_approve: counts?.votes_approve ?? 0,
-        votes_reject: counts?.votes_reject ?? 0,
-      });
+      // User already voted - votes are locked, no changes allowed
+      return NextResponse.json(
+        { error: "You have already voted on this build" },
+        { status: 400 }
+      );
     }
 
     // Create new vote

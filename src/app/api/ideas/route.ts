@@ -85,6 +85,21 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Get idea IDs that have builds in voting status
+    const ideaIds = (data || []).map((row: DbIdea) => row.id);
+    let votingBuildIdeaIds = new Set<number>();
+    if (ideaIds.length > 0) {
+      const { data: votingBuilds } = await supabase
+        .from("builds")
+        .select("idea_id")
+        .eq("status", "voting")
+        .in("idea_id", ideaIds);
+
+      if (votingBuilds) {
+        votingBuildIdeaIds = new Set(votingBuilds.map(b => b.idea_id));
+      }
+    }
+
     // Transform to frontend type
     const ideas: Idea[] = (data || []).map((row: DbIdea & { users: DbUser | null }) => ({
       id: row.id,
@@ -101,6 +116,7 @@ export async function GET(request: NextRequest) {
       cast_hash: row.cast_hash,
       related_casts: row.related_casts || [],
       solution_url: row.solution_url,
+      hasVotingBuilds: votingBuildIdeaIds.has(row.id),
       created_at: row.created_at,
     }));
 

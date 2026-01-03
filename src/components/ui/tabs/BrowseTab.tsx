@@ -297,6 +297,9 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-white truncate">{idea.title}</h3>
                         {idea.status === "racing" && getStatusBadge(idea.status)}
+                        {idea.hasVotingBuilds && (
+                          <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 text-xs rounded-full">🗳️ Voting</span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>

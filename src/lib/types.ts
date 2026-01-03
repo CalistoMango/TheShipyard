@@ -158,6 +158,7 @@ export interface Idea {
   related_casts: string[]; // cast hashes of duplicate suggestions
   solution_url: string | null; // URL to existing solution (from approved report)
   refund_available?: boolean; // true if idea is open (per-user eligibility checked separately)
+  hasVotingBuilds?: boolean; // true if idea has builds in voting status (for list view badge)
   created_at: string;
 }
 
@@ -167,6 +168,22 @@ export interface WinningBuild {
   url: string;
   builder: string;
   builder_fid: number;
+}
+
+/** Build in voting status (for display) */
+export interface VotingBuild {
+  id: string;
+  url: string;
+  description: string | null;
+  builder: string;
+  builder_fid: number;
+  builder_pfp: string | null;
+  votes_approve: number;
+  votes_reject: number;
+  vote_ends_at: string; // ISO string
+  vote_ends_in_seconds: number; // Server-computed, Math.max(0, ...)
+  voting_ended: boolean; // Server-enforced, true if vote_ends_at < now
+  user_vote: "approve" | "reject" | null; // Always included, null if not voted
 }
 
 /** Funding entry for display */

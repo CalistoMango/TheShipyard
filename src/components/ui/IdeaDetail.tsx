@@ -5,7 +5,8 @@ import { useMiniApp } from "@neynar/react";
 import sdk from "@farcaster/miniapp-sdk";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, useSwitchChain } from "wagmi";
 import { parseUnits, formatUnits } from "viem";
-import type { Idea, Category, FundingEntry, WinningBuild, Comment } from "~/lib/types";
+import type { Idea, Category, FundingEntry, WinningBuild, VotingBuild, Comment } from "~/lib/types";
+import { useCastVote } from "~/lib/hooks/useVote";
 import { ProfileLink } from "~/components/ui/ProfileLink";
 import { CastLink } from "~/components/ui/CastLink";
 import { APP_URL, BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT } from "~/lib/constants";
@@ -22,6 +23,7 @@ interface IdeaDetailData {
   fundingHistory: FundingEntry[];
   totalFunders: number;
   winningBuild: WinningBuild | null;
+  votingBuilds: VotingBuild[];
   userContribution?: number;
   refundDelayDays: number;
   userRefundEligibility?: {
@@ -123,6 +125,178 @@ function AlreadyExistsSection({ solutionUrl }: { solutionUrl: string | null }) {
   );
 }
 
+function VoteBuildCard({
+  build,
+  ideaId,
+  userFid,
+  onVoteSuccess,
+}: {
+  build: VotingBuild;
+  ideaId: number;
+  userFid: number | undefined;
+  onVoteSuccess: () => void;
+}) {
+  const [timeRemaining, setTimeRemaining] = useState(build.vote_ends_in_seconds);
+  const [voteError, setVoteError] = useState<string | null>(null);
+  const { mutate: castVote, isPending } = useCastVote(build.id, ideaId, userFid || 0);
+
+  // Countdown timer
+  useEffect(() => {
+    if (build.voting_ended || timeRemaining <= 0) return;
+
+    const interval = setInterval(() => {
+      setTimeRemaining((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [build.voting_ended, timeRemaining]);
+
+  const formatTime = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours > 0) {
+      return `${hours}h ${minutes}m remaining`;
+    }
+    return `${minutes}m remaining`;
+  };
+
+  const totalVotes = build.votes_approve + build.votes_reject;
+  const approvePercent = totalVotes > 0 ? Math.round((build.votes_approve / totalVotes) * 100) : 50;
+  const rejectPercent = totalVotes > 0 ? 100 - approvePercent : 50;
+
+  const isBuilder = userFid === build.builder_fid;
+  const hasVoted = build.user_vote !== null;
+  const canVote = userFid && !isBuilder && !hasVoted && !build.voting_ended && timeRemaining > 0;
+
+  return (
+    <div className="bg-gray-700/50 rounded-lg p-4 space-y-3">
+      {/* Builder info */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {build.builder_pfp ? (
+            <img src={build.builder_pfp} alt="" className="w-8 h-8 rounded-full" />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500" />
+          )}
+          <div>
+            <ProfileLink fid={build.builder_fid} className="text-white font-medium text-sm">
+              {build.builder}
+            </ProfileLink>
+            {build.description && (
+              <p className="text-gray-400 text-xs">{build.description}</p>
+            )}
+          </div>
+        </div>
+        <a
+          href={build.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium"
+        >
+          View Build ↗
+        </a>
+      </div>
+
+      {/* Vote progress bar */}
+      <div>
+        <div className="flex justify-between text-xs mb-1">
+          <span className="text-green-400">{build.votes_approve} approve ({approvePercent}%)</span>
+          <span className="text-red-400">{build.votes_reject} reject ({rejectPercent}%)</span>
+        </div>
+        <div className="h-2 bg-gray-600 rounded-full overflow-hidden flex">
+          <div
+            className="bg-green-500 transition-all duration-300"
+            style={{ width: `${approvePercent}%` }}
+          />
+          <div
+            className="bg-red-500 transition-all duration-300"
+            style={{ width: `${rejectPercent}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Time remaining */}
+      <div className="text-center">
+        {build.voting_ended || timeRemaining <= 0 ? (
+          <span className="text-gray-400 text-sm">Voting ended</span>
+        ) : (
+          <span className="text-amber-300 text-sm">{formatTime(timeRemaining)}</span>
+        )}
+      </div>
+
+      {/* Vote buttons or status */}
+      {!userFid ? (
+        <p className="text-gray-400 text-sm text-center">Sign in to vote</p>
+      ) : isBuilder ? (
+        <p className="text-gray-400 text-sm text-center">You can&apos;t vote on your own build</p>
+      ) : hasVoted ? (
+        <div className="text-center">
+          <span className={`text-sm font-medium ${build.user_vote === "approve" ? "text-green-400" : "text-red-400"}`}>
+            You voted: {build.user_vote === "approve" ? "✓ Approve" : "✗ Reject"}
+          </span>
+        </div>
+      ) : build.voting_ended || timeRemaining <= 0 ? null : (
+        <div className="space-y-2">
+          {voteError && (
+            <p className="text-red-400 text-sm text-center">{voteError}</p>
+          )}
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setVoteError(null);
+                castVote(true, {
+                  onSuccess: onVoteSuccess,
+                  onError: (err) => setVoteError(err.message),
+                });
+              }}
+              disabled={isPending || !canVote}
+              className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2 rounded-lg font-medium text-sm disabled:opacity-50"
+            >
+              {isPending ? "..." : "✓ Approve"}
+            </button>
+            <button
+              onClick={() => {
+                setVoteError(null);
+                castVote(false, {
+                  onSuccess: onVoteSuccess,
+                  onError: (err) => setVoteError(err.message),
+                });
+              }}
+              disabled={isPending || !canVote}
+              className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded-lg font-medium text-sm disabled:opacity-50"
+            >
+              {isPending ? "..." : "✗ Reject"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VotingSection({ builds, ideaId, userFid, onVoteSuccess }: { builds: VotingBuild[]; ideaId: number; userFid: number | undefined; onVoteSuccess: () => void }) {
+  if (!builds || builds.length === 0) return null;
+
+  return (
+    <div className="bg-amber-900/20 border border-amber-700 rounded-xl p-4 mt-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xl">🗳️</span>
+        <h3 className="font-semibold text-amber-300">
+          {builds.length === 1 ? "Build Under Vote" : `${builds.length} Builds Under Vote`}
+        </h3>
+      </div>
+      <p className="text-gray-300 text-sm mb-4">
+        Community members can vote to approve or reject submitted builds. Builds need &gt;50% approval to win.
+      </p>
+      <div className="space-y-4">
+        {builds.map((build) => (
+          <VoteBuildCard key={build.id} build={build} ideaId={ideaId} userFid={userFid} onVoteSuccess={onVoteSuccess} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
   const { context } = useMiniApp();
   const [detailData, setDetailData] = useState<IdeaDetailData | null>(null);
@@ -191,37 +365,38 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
     window.scrollTo(0, 0);
   }, []);
 
-  useEffect(() => {
-    async function fetchIdeaDetail() {
-      setLoading(true);
-      try {
-        const url = userFid
-          ? `/api/ideas/${initialIdea.id}?user_fid=${userFid}`
-          : `/api/ideas/${initialIdea.id}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          setDetailData(data.data);
-          setUpvoteCount(data.data.idea.upvotes);
-        }
-
-        // Check if user has upvoted
-        if (userFid) {
-          const upvoteRes = await fetch(`/api/ideas/${initialIdea.id}/upvote?user_fid=${userFid}`);
-          if (upvoteRes.ok) {
-            const upvoteData = await upvoteRes.json();
-            setHasUpvoted(upvoteData.upvoted);
-          }
-        }
-      } catch (error) {
-        console.error("Failed to fetch idea details:", error);
-      } finally {
-        setLoading(false);
+  // Fetch idea details - extracted as callback so it can be reused for refetch after voting
+  const fetchIdeaDetail = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    try {
+      const url = userFid
+        ? `/api/ideas/${initialIdea.id}?user_fid=${userFid}`
+        : `/api/ideas/${initialIdea.id}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setDetailData(data.data);
+        setUpvoteCount(data.data.idea.upvotes);
       }
-    }
 
-    fetchIdeaDetail();
+      // Check if user has upvoted
+      if (userFid) {
+        const upvoteRes = await fetch(`/api/ideas/${initialIdea.id}/upvote?user_fid=${userFid}`);
+        if (upvoteRes.ok) {
+          const upvoteData = await upvoteRes.json();
+          setHasUpvoted(upvoteData.upvoted);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch idea details:", error);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
   }, [initialIdea.id, userFid]);
+
+  useEffect(() => {
+    fetchIdeaDetail();
+  }, [fetchIdeaDetail]);
 
   // Fetch comments (replies from Farcaster)
   useEffect(() => {
@@ -873,6 +1048,11 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
       {/* Racing Section (if racing/race mode) */}
       {idea.status === "racing" && <RacingSection pool={idea.pool} />}
 
+      {/* Voting Section (if builds are under vote) */}
+      {detailData?.votingBuilds && detailData.votingBuilds.length > 0 && (
+        <VotingSection builds={detailData.votingBuilds} ideaId={idea.id} userFid={userFid} onVoteSuccess={() => fetchIdeaDetail(false)} />
+      )}
+
       {/* Completed Section (if completed) */}
       {idea.status === "completed" && (
         <CompletedSection winningBuild={winningBuild} solutionUrl={idea.solution_url} />
@@ -969,17 +1149,15 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
 
           {/* Original Cast */}
           {originalCast && (
-            <CastLink castHash={idea.cast_hash} className="block mb-4">
-              <div className="border border-gray-700 rounded-lg overflow-hidden hover:border-gray-600 transition-colors">
-                <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/50">
-                  {originalCast.author_pfp && (
-                    <img src={originalCast.author_pfp} alt="" className="w-6 h-6 rounded-full" />
-                  )}
-                  <span className="text-white text-sm font-bold">{originalCast.author}</span>
-                </div>
-                <p className="text-gray-300 text-sm whitespace-pre-wrap px-3 py-3">{originalCast.text}</p>
+            <div className="border border-gray-700 rounded-lg overflow-hidden mb-4">
+              <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/50">
+                {originalCast.author_pfp && (
+                  <img src={originalCast.author_pfp} alt="" className="w-6 h-6 rounded-full" />
+                )}
+                <span className="text-white text-sm font-bold">{originalCast.author}</span>
               </div>
-            </CastLink>
+              <p className="text-gray-300 text-sm whitespace-pre-wrap px-3 py-3 text-left">{originalCast.text}</p>
+            </div>
           )}
 
           {/* Recent Replies */}

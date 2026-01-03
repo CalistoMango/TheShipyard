@@ -9,6 +9,7 @@ import type {
   DbFunding,
   DbUsedClaimTx,
   Idea,
+  VotingBuild,
 } from "~/lib/types";
 
 describe("Types", () => {
@@ -250,6 +251,128 @@ describe("Types", () => {
 
       expect(idea.submitter).toBe("testuser.eth");
       expect(typeof idea.submitter).toBe("string");
+    });
+
+    it("should include hasVotingBuilds flag for list view badge", () => {
+      const ideaWithVoting: Idea = {
+        id: 2,
+        title: "Idea with Voting",
+        description: "An idea with active voting",
+        category: "defi",
+        pool: 150,
+        upvotes: 20,
+        submitter: "builder.eth",
+        submitter_fid: 456,
+        submitter_username: "builder",
+        submitter_pfp: null,
+        status: "racing",
+        cast_hash: null,
+        related_casts: [],
+        solution_url: null,
+        created_at: "2025-01-01T00:00:00Z",
+        hasVotingBuilds: true,
+      };
+
+      expect(ideaWithVoting.hasVotingBuilds).toBe(true);
+    });
+  });
+
+  describe("VotingBuild", () => {
+    it("should have all required fields for voting UI", () => {
+      const votingBuild: VotingBuild = {
+        id: "build-uuid-123",
+        url: "https://example.com/build",
+        description: "A build submission for voting",
+        builder: "testbuilder",
+        builder_fid: 12345,
+        builder_pfp: "https://example.com/pfp.png",
+        votes_approve: 10,
+        votes_reject: 3,
+        vote_ends_at: "2025-01-20T00:00:00Z",
+        vote_ends_in_seconds: 3600,
+        voting_ended: false,
+        user_vote: null,
+      };
+
+      expect(votingBuild.id).toBe("build-uuid-123");
+      expect(votingBuild.votes_approve).toBe(10);
+      expect(votingBuild.votes_reject).toBe(3);
+      expect(votingBuild.voting_ended).toBe(false);
+      expect(votingBuild.user_vote).toBeNull();
+    });
+
+    it("should support user_vote values for approve and reject", () => {
+      const approvedBuild: VotingBuild = {
+        id: "build-1",
+        url: "https://example.com/build1",
+        description: null,
+        builder: "builder1",
+        builder_fid: 111,
+        builder_pfp: null,
+        votes_approve: 15,
+        votes_reject: 5,
+        vote_ends_at: "2025-01-20T00:00:00Z",
+        vote_ends_in_seconds: 1800,
+        voting_ended: false,
+        user_vote: "approve",
+      };
+
+      const rejectedBuild: VotingBuild = {
+        id: "build-2",
+        url: "https://example.com/build2",
+        description: "Another build",
+        builder: "builder2",
+        builder_fid: 222,
+        builder_pfp: "https://example.com/pfp2.png",
+        votes_approve: 8,
+        votes_reject: 12,
+        vote_ends_at: "2025-01-20T00:00:00Z",
+        vote_ends_in_seconds: 900,
+        voting_ended: false,
+        user_vote: "reject",
+      };
+
+      expect(approvedBuild.user_vote).toBe("approve");
+      expect(rejectedBuild.user_vote).toBe("reject");
+    });
+
+    it("should handle voting_ended state from server", () => {
+      const endedBuild: VotingBuild = {
+        id: "build-ended",
+        url: "https://example.com/ended",
+        description: "Voting has ended",
+        builder: "builder",
+        builder_fid: 333,
+        builder_pfp: null,
+        votes_approve: 20,
+        votes_reject: 10,
+        vote_ends_at: "2025-01-15T00:00:00Z",
+        vote_ends_in_seconds: 0,
+        voting_ended: true,
+        user_vote: "approve",
+      };
+
+      expect(endedBuild.voting_ended).toBe(true);
+      expect(endedBuild.vote_ends_in_seconds).toBe(0);
+    });
+
+    it("should ensure vote_ends_in_seconds is non-negative", () => {
+      const build: VotingBuild = {
+        id: "build-test",
+        url: "https://example.com/test",
+        description: null,
+        builder: "builder",
+        builder_fid: 444,
+        builder_pfp: null,
+        votes_approve: 5,
+        votes_reject: 5,
+        vote_ends_at: "2025-01-10T00:00:00Z",
+        vote_ends_in_seconds: 0, // Server uses Math.max(0, ...)
+        voting_ended: true,
+        user_vote: null,
+      };
+
+      expect(build.vote_ends_in_seconds).toBeGreaterThanOrEqual(0);
     });
   });
 });

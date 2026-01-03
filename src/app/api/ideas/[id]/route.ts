@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
-import type { DbIdea, DbUser, DbFunding, Idea, FundingEntry, WinningBuild } from "~/lib/types";
+import type { DbIdea, DbUser, DbFunding, Idea, FundingEntry, WinningBuild, VotingBuild } from "~/lib/types";
 import { parseId } from "~/lib/utils";
 import { REFUND_DELAY_DAYS } from "~/lib/constants";
 import { checkUserRefundEligibility, type FundingRecord } from "~/lib/refund";
@@ -10,6 +10,7 @@ interface IdeaDetailResponse {
   fundingHistory: FundingEntry[];
   totalFunders: number;
   winningBuild: WinningBuild | null;
+  votingBuilds: VotingBuild[]; // Builds currently in voting status
   userContribution?: number; // Total unrefunded contribution by requesting user
   refundDelayDays: number; // For UI to show correct message
   userRefundEligibility?: {
@@ -131,6 +132,62 @@ export async function GET(
       }
     }
 
+    // Fetch builds in voting status
+    const { data: votingBuildsData } = await supabase
+      .from("builds")
+      .select("id, url, description, builder_fid, votes_approve, votes_reject, vote_ends_at, users!builder_fid(username, display_name, pfp_url)")
+      .eq("idea_id", ideaId)
+      .eq("status", "voting");
+
+    // If user_fid provided, get their votes on these builds
+    let userVotesMap: Record<string, boolean> = {};
+    if (userFid && votingBuildsData && votingBuildsData.length > 0) {
+      const buildIds = votingBuildsData.map(b => b.id);
+      const { data: userVotes } = await supabase
+        .from("votes")
+        .select("build_id, approved")
+        .eq("voter_fid", userFid)
+        .in("build_id", buildIds);
+
+      if (userVotes) {
+        userVotesMap = Object.fromEntries(userVotes.map(v => [v.build_id, v.approved]));
+      }
+    }
+
+    // Transform voting builds
+    const now = Date.now();
+    const votingBuilds: VotingBuild[] = (votingBuildsData || []).map((b) => {
+      const buildRow = b as unknown as {
+        id: string;
+        url: string;
+        description: string | null;
+        builder_fid: number;
+        votes_approve: number;
+        votes_reject: number;
+        vote_ends_at: string | null;
+        users: { username: string | null; display_name: string | null; pfp_url: string | null } | null;
+      };
+      const voteEndsAt = buildRow.vote_ends_at ? new Date(buildRow.vote_ends_at).getTime() : now;
+      const secondsRemaining = Math.max(0, Math.floor((voteEndsAt - now) / 1000));
+      const votingEnded = voteEndsAt < now;
+      const userVote = userVotesMap[buildRow.id];
+
+      return {
+        id: buildRow.id,
+        url: buildRow.url,
+        description: buildRow.description,
+        builder: buildRow.users?.display_name || buildRow.users?.username || "Anonymous",
+        builder_fid: buildRow.builder_fid,
+        builder_pfp: buildRow.users?.pfp_url || null,
+        votes_approve: buildRow.votes_approve,
+        votes_reject: buildRow.votes_reject,
+        vote_ends_at: buildRow.vote_ends_at || new Date().toISOString(),
+        vote_ends_in_seconds: secondsRemaining,
+        voting_ended: votingEnded,
+        user_vote: userVote === undefined ? null : (userVote ? "approve" : "reject"),
+      };
+    });
+
     // Transform funding history
     const fundingHistory: FundingEntry[] = (fundingData || []).map(
       (f: DbFunding & { users: DbUser | null }) => ({
@@ -179,6 +236,7 @@ export async function GET(
       fundingHistory,
       totalFunders: funderCount || 0,
       winningBuild,
+      votingBuilds,
       userContribution,
       refundDelayDays: REFUND_DELAY_DAYS,
       userRefundEligibility,

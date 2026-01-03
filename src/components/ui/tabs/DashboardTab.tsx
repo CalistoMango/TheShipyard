@@ -431,7 +431,27 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
 
       {activeSubTab === "votes" && (
         <div className="space-y-3">
-          <p className="text-gray-500 text-sm py-4">Voting feature coming soon.</p>
+          {pendingVotes.length === 0 ? (
+            <p className="text-gray-500 text-sm py-4">No active votes to participate in.</p>
+          ) : (
+            pendingVotes.map((build) => (
+              <button
+                key={build.id}
+                onClick={() => handleIdeaClick(build.idea_id)}
+                className="w-full bg-gray-800/50 border border-gray-700 rounded-xl p-4 text-left hover:border-amber-500/50 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-white font-medium">{build.idea_title}</h4>
+                    <p className="text-gray-500 text-xs mt-1">Pool: ${build.idea_pool.toFixed(2)}</p>
+                  </div>
+                  <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 text-xs rounded-full">
+                    Vote Now →
+                  </span>
+                </div>
+              </button>
+            ))
+          )}
         </div>
       )}
 
@@ -443,7 +463,10 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
             <span className="text-yellow-300 font-medium">{pendingVotes.length} pending vote{pendingVotes.length > 1 ? "s" : ""}</span>
           </div>
           <p className="text-sm text-gray-300">{pendingVotes[0].idea_title} needs your vote</p>
-          <button className="mt-2 w-full bg-yellow-600 hover:bg-yellow-500 text-white py-2 rounded-lg font-medium">
+          <button
+            onClick={() => handleIdeaClick(pendingVotes[0].idea_id)}
+            className="mt-2 w-full bg-yellow-600 hover:bg-yellow-500 text-white py-2 rounded-lg font-medium"
+          >
             Vote Now
           </button>
         </div>
