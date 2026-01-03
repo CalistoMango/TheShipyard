@@ -286,20 +286,44 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
             </div>
           ) : (
             <>
-              {ideas.map((idea) => (
+              {/* Sort voting ideas to top */}
+              {[...ideas].sort((a, b) => {
+                // Voting ideas first
+                if (a.hasVotingBuilds && !b.hasVotingBuilds) return -1;
+                if (!a.hasVotingBuilds && b.hasVotingBuilds) return 1;
+                return 0; // Keep original order otherwise
+              }).map((idea) => (
                 <div
                   key={idea.id}
                   onClick={() => onSelectIdea(idea)}
-                  className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 hover:border-gray-600 cursor-pointer transition-all"
+                  className={`bg-gray-800/50 border rounded-xl overflow-hidden hover:border-opacity-80 cursor-pointer transition-all ${
+                    idea.hasVotingBuilds
+                      ? "border-amber-500"
+                      : idea.status === "completed"
+                        ? "border-green-500"
+                        : idea.status === "already_exists"
+                          ? "border-red-500/50"
+                          : "border-gray-700 hover:border-gray-600"
+                  }`}
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  {/* Voting banner */}
+                  {idea.hasVotingBuilds && (
+                    <div className="bg-amber-500 px-4 py-1.5 flex items-center gap-2">
+                      <span className="text-black text-sm font-medium">🗳️ Vote needed</span>
+                    </div>
+                  )}
+                  {/* Built banner */}
+                  {idea.status === "completed" && !idea.hasVotingBuilds && (
+                    <div className="bg-green-500 px-4 py-1.5 flex items-center gap-2">
+                      <span className="text-black text-sm font-medium">✅ Successfully Built</span>
+                    </div>
+                  )}
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-white truncate">{idea.title}</h3>
                         {idea.status === "racing" && getStatusBadge(idea.status)}
-                        {idea.hasVotingBuilds && (
-                          <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 text-xs rounded-full">🗳️ Voting</span>
-                        )}
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>
@@ -308,12 +332,8 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                         <span className="text-gray-500">by {idea.submitter}</span>
                       </div>
                     </div>
-                    {idea.status === "completed" ? (
-                      <div className="text-center">
-                        <div className="text-green-400 font-bold text-sm">✅ Built</div>
-                      </div>
-                    ) : idea.status === "already_exists" ? (
-                      <div className="text-center">
+                    {idea.status === "already_exists" ? (
+                      <div className="flex items-center">
                         <div className="text-red-400 font-bold text-sm">⚠️ Exists</div>
                       </div>
                     ) : (
@@ -328,6 +348,7 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                         </div>
                       </div>
                     )}
+                    </div>
                   </div>
                 </div>
               ))}

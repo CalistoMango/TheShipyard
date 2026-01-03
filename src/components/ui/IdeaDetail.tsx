@@ -846,27 +846,42 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
               >
                 {actionLoading === "upvote" ? "..." : hasUpvoted ? "✓ Upvoted" : "⬆️ Upvote"}
               </button>
-              <button
-                onClick={() => setShowFundModal(true)}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2"
-              >
-                💰 Fund
-              </button>
+              {/* Disable funding when build is under vote */}
+              {detailData?.votingBuilds && detailData.votingBuilds.length > 0 ? (
+                <button
+                  disabled
+                  className="flex-1 bg-gray-600 text-gray-400 py-3 rounded-xl font-medium flex items-center justify-center gap-2 cursor-not-allowed"
+                  title="Funding disabled while build is under vote"
+                >
+                  💰 Fund
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowFundModal(true)}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2"
+                >
+                  💰 Fund
+                </button>
+              )}
             </div>
-            {/* Submit Build - full width */}
-            <button
-              onClick={() => setShowBuildModal(true)}
-              className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2"
-            >
-              🚀 Submit Build to Claim the Pool
-            </button>
-            {/* Already Built button */}
-            <button
-              onClick={() => setShowReportModal(true)}
-              className="w-full bg-yellow-600/20 hover:bg-yellow-600/30 border border-yellow-600/40 text-yellow-300 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
-            >
-              🚩 Already Built? Report Existing Solution
-            </button>
+            {/* Submit Build - hide when voting in progress */}
+            {(!detailData?.votingBuilds || detailData.votingBuilds.length === 0) && (
+              <button
+                onClick={() => setShowBuildModal(true)}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2"
+              >
+                🚀 Submit Build to Claim the Pool
+              </button>
+            )}
+            {/* Already Built button - hide when voting in progress */}
+            {(!detailData?.votingBuilds || detailData.votingBuilds.length === 0) && (
+              <button
+                onClick={() => setShowReportModal(true)}
+                className="w-full bg-yellow-600/20 hover:bg-yellow-600/30 border border-yellow-600/40 text-yellow-300 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
+              >
+                🚩 Already Built? Report Existing Solution
+              </button>
+            )}
           </div>
         )}
       </div>
