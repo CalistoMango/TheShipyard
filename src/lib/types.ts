@@ -196,6 +196,15 @@ export interface IdeaSubmitter {
   earnings: number;
 }
 
+/** Funder for leaderboard */
+export interface Funder {
+  fid: number;
+  name: string;
+  pfp_url: string | null;
+  funded: number; // number of ideas funded
+  total: number; // total amount funded
+}
+
 /** Recent build for profile */
 export interface RecentBuild {
   id: string;

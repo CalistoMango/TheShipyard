@@ -142,9 +142,66 @@ export async function GET(request: NextRequest) {
       });
 
       return NextResponse.json({ data: leaderboard, type: "submitters" });
+    } else if (type === "funders") {
+      // Top funders by total amount funded (excluding refunded)
+      const { data: fundings } = await supabase
+        .from("funding")
+        .select("funder_fid, idea_id, amount")
+        .is("refunded_at", null);
+
+      // Aggregate fundings by funder (count unique ideas, not transactions)
+      const funderStats = new Map<
+        number,
+        { fid: number; total: number; ideas: Set<number> }
+      >();
+
+      for (const f of fundings || []) {
+        const existing = funderStats.get(f.funder_fid) || {
+          fid: f.funder_fid,
+          total: 0,
+          ideas: new Set<number>(),
+        };
+        existing.total += Number(f.amount);
+        existing.ideas.add(f.idea_id);
+        funderStats.set(f.funder_fid, existing);
+      }
+
+      // Get user info for top funders
+      const sortedFunders = Array.from(funderStats.values())
+        .map((f) => ({ fid: f.fid, total: f.total, funded: f.ideas.size }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, limit);
+
+      if (sortedFunders.length === 0) {
+        return NextResponse.json({ data: [], type: "funders" });
+      }
+
+      const { data: users } = await supabase
+        .from("users")
+        .select("fid, username, display_name, pfp_url")
+        .in(
+          "fid",
+          sortedFunders.map((f) => f.fid)
+        );
+
+      const userMap = new Map(users?.map((u) => [u.fid, u]) || []);
+
+      const leaderboard = sortedFunders.map((funder, index) => {
+        const user = userMap.get(funder.fid);
+        return {
+          rank: index + 1,
+          fid: funder.fid,
+          name: user?.display_name || user?.username || `fid:${funder.fid}`,
+          pfp_url: user?.pfp_url || null,
+          funded: funder.funded,
+          total: funder.total,
+        };
+      });
+
+      return NextResponse.json({ data: leaderboard, type: "funders" });
     } else {
       return NextResponse.json(
-        { error: "Invalid type. Use 'builders' or 'submitters'" },
+        { error: "Invalid type. Use 'builders', 'submitters', or 'funders'" },
         { status: 400 }
       );
     }

@@ -3,6 +3,7 @@ import { createServerClient } from "~/lib/supabase";
 import type { DbIdea, DbUser, DbFunding, Idea, FundingEntry, WinningBuild } from "~/lib/types";
 import { parseId } from "~/lib/utils";
 import { REFUND_DELAY_DAYS } from "~/lib/constants";
+import { checkUserRefundEligibility, type FundingRecord } from "~/lib/refund";
 
 interface IdeaDetailResponse {
   idea: Idea;
@@ -11,6 +12,11 @@ interface IdeaDetailResponse {
   winningBuild: WinningBuild | null;
   userContribution?: number; // Total unrefunded contribution by requesting user
   refundDelayDays: number; // For UI to show correct message
+  userRefundEligibility?: {
+    eligible: boolean;
+    daysUntilRefund: number;
+    daysSinceLastFunding: number;
+  };
 }
 
 export async function GET(
@@ -135,17 +141,37 @@ export async function GET(
       })
     );
 
-    // If user_fid provided, get their total unrefunded contribution (not limited to last 10)
+    // If user_fid provided, get their funding records for contribution and eligibility
     let userContribution: number | undefined;
+    let userRefundEligibility: IdeaDetailResponse["userRefundEligibility"];
     if (userFid && !isNaN(userFid)) {
+      // Fetch all user funding (including refunded) for eligibility calculation
       const { data: userFundingData } = await supabase
         .from("funding")
-        .select("amount")
+        .select("id, amount, created_at, refunded_at")
         .eq("idea_id", ideaId)
-        .eq("funder_fid", userFid)
-        .is("refunded_at", null);
+        .eq("funder_fid", userFid);
 
-      userContribution = userFundingData?.reduce((sum, f) => sum + Number(f.amount), 0) || 0;
+      // Calculate total unrefunded contribution
+      userContribution = userFundingData
+        ?.filter(f => !f.refunded_at)
+        .reduce((sum, f) => sum + Number(f.amount), 0) || 0;
+
+      // Calculate refund eligibility
+      if (userFundingData && userFundingData.length > 0) {
+        const fundingRecords: FundingRecord[] = userFundingData.map(f => ({
+          id: f.id,
+          amount: Number(f.amount),
+          created_at: f.created_at,
+          refunded_at: f.refunded_at,
+        }));
+        const eligibility = checkUserRefundEligibility(row.status, fundingRecords);
+        userRefundEligibility = {
+          eligible: eligibility.eligible,
+          daysUntilRefund: eligibility.daysUntilRefund,
+          daysSinceLastFunding: eligibility.daysSinceLastFunding,
+        };
+      }
     }
 
     const response: IdeaDetailResponse = {
@@ -155,6 +181,7 @@ export async function GET(
       winningBuild,
       userContribution,
       refundDelayDays: REFUND_DELAY_DAYS,
+      userRefundEligibility,
     };
 
     return NextResponse.json({ data: response, error: null });

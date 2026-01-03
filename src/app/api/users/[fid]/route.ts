@@ -99,8 +99,9 @@ export async function GET(
 
     // Calculate stats
     const totalEarnings = payouts?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-    // total_funded is LIFETIME funding (including refunded amounts)
-    const totalFunded = allFunding?.reduce((sum, f) => sum + Number(f.amount), 0) || 0;
+    // total_funded is ALL historical funding EXCEPT refunded amounts
+    // (includes funding for completed ideas, just not refunded ones)
+    const totalFunded = funding.reduce((sum, f) => sum + Number(f.amount), 0);
     const approvedBuilds = builds?.filter((b) => b.status === "approved").length || 0;
 
     // Build response - redact private data if not own profile

@@ -22,6 +22,15 @@ interface Submitter {
   earnings: number;
 }
 
+interface Funder {
+  rank: number;
+  fid: number;
+  name: string;
+  pfp_url: string | null;
+  funded: number;
+  total: number;
+}
+
 function getRankStyle(index: number): string {
   if (index === 0) return "bg-yellow-500 text-yellow-900";
   if (index === 1) return "bg-gray-400 text-gray-900";
@@ -31,15 +40,17 @@ function getRankStyle(index: number): string {
 export function LeaderboardTab() {
   const [builders, setBuilders] = useState<Builder[]>([]);
   const [submitters, setSubmitters] = useState<Submitter[]>([]);
+  const [funders, setFunders] = useState<Funder[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchLeaderboards() {
       setLoading(true);
       try {
-        const [buildersRes, submittersRes] = await Promise.all([
+        const [buildersRes, submittersRes, fundersRes] = await Promise.all([
           fetch("/api/leaderboard?type=builders&limit=10"),
           fetch("/api/leaderboard?type=submitters&limit=10"),
+          fetch("/api/leaderboard?type=funders&limit=10"),
         ]);
 
         if (buildersRes.ok) {
@@ -50,6 +61,11 @@ export function LeaderboardTab() {
         if (submittersRes.ok) {
           const submittersData = await submittersRes.json();
           setSubmitters(submittersData.data || []);
+        }
+
+        if (fundersRes.ok) {
+          const fundersData = await fundersRes.json();
+          setFunders(fundersData.data || []);
         }
       } catch (error) {
         console.error("Failed to fetch leaderboards:", error);
@@ -134,6 +150,38 @@ export function LeaderboardTab() {
                   <div className="text-gray-500 text-xs">{u.ideas} ideas built</div>
                 </div>
                 <div className="text-emerald-400 font-bold">${u.earnings}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Top Funders */}
+      <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+        <h3 className="font-semibold text-white mb-3">💰 Top Funders</h3>
+        {funders.length === 0 ? (
+          <p className="text-gray-500 text-sm">No funders yet. Be the first to fund an idea!</p>
+        ) : (
+          <div className="space-y-3">
+            {funders.map((f, i) => (
+              <div key={f.fid} className="flex items-center gap-3">
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${getRankStyle(i)}`}
+                >
+                  {i + 1}
+                </div>
+                {f.pfp_url ? (
+                  <img src={f.pfp_url} alt="" className="w-8 h-8 rounded-full" />
+                ) : (
+                  <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-full" />
+                )}
+                <div className="flex-1">
+                  <ProfileLink fid={f.fid} className="text-white font-medium">
+                    {f.name}
+                  </ProfileLink>
+                  <div className="text-gray-500 text-xs">{f.funded} ideas funded</div>
+                </div>
+                <div className="text-emerald-400 font-bold">${f.total}</div>
               </div>
             ))}
           </div>

@@ -24,6 +24,11 @@ interface IdeaDetailData {
   winningBuild: WinningBuild | null;
   userContribution?: number;
   refundDelayDays: number;
+  userRefundEligibility?: {
+    eligible: boolean;
+    daysUntilRefund: number;
+    daysSinceLastFunding: number;
+  };
 }
 
 const getCategoryColor = (cat: Category): string => {
@@ -858,7 +863,9 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
 
         if (!userFid || userContribution <= 0) return null;
 
-        const refundDelayDays = detailData?.refundDelayDays ?? 30;
+        const refundEligibility = detailData?.userRefundEligibility;
+        const canWithdraw = refundEligibility?.eligible ?? false;
+        const daysRemaining = refundEligibility?.daysUntilRefund ?? 0;
 
         return (
           <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
@@ -869,20 +876,22 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
                   ${userContribution.toFixed(2)} USDC
                 </p>
               </div>
-              {/* Show withdraw button for open ideas - eligibility checked by backend */}
+              {/* Show withdraw button for open ideas - disabled if not eligible */}
               {idea.status === "open" && (
                 <button
                   onClick={handleWithdraw}
-                  disabled={actionLoading === "withdraw" || !isConnected}
-                  className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded-lg font-medium text-sm disabled:opacity-50"
+                  disabled={actionLoading === "withdraw" || !isConnected || !canWithdraw}
+                  className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {actionLoading === "withdraw" ? "Withdrawing..." : "Withdraw"}
                 </button>
               )}
             </div>
-            {idea.status === "open" && refundDelayDays > 0 && (
+            {idea.status === "open" && (
               <p className="text-gray-400 text-xs mt-2">
-                Refunds available {refundDelayDays} days after your last funding
+                {canWithdraw
+                  ? "You can claim a refund now"
+                  : `Refund available in ${daysRemaining} day${daysRemaining !== 1 ? "s" : ""}`}
               </p>
             )}
           </div>
