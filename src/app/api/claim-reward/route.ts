@@ -271,7 +271,7 @@ export async function GET(request: NextRequest) {
       } catch (error) {
         // If RPC fails for a project, skip it (don't show as claimable)
         console.error(`Failed to get on-chain claimed for idea ${ideaId}:`, error);
-        onChainClaimed.set(ideaId, BigInt(Number.MAX_SAFE_INTEGER)); // Treat as fully claimed
+        onChainClaimed.set(ideaId, 2n ** 256n - 1n); // Treat as fully claimed (max uint256)
       }
     }
 

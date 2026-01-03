@@ -22,6 +22,8 @@ interface IdeaDetailData {
   fundingHistory: FundingEntry[];
   totalFunders: number;
   winningBuild: WinningBuild | null;
+  userContribution?: number;
+  refundDelayDays: number;
 }
 
 const getCategoryColor = (cat: Category): string => {
@@ -169,7 +171,10 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
     async function fetchIdeaDetail() {
       setLoading(true);
       try {
-        const res = await fetch(`/api/ideas/${initialIdea.id}`);
+        const url = userFid
+          ? `/api/ideas/${initialIdea.id}?user_fid=${userFid}`
+          : `/api/ideas/${initialIdea.id}`;
+        const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
           setDetailData(data.data);
@@ -365,7 +370,10 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
           }
 
           // Refresh data
-          const refreshRes = await fetch(`/api/ideas/${initialIdea.id}`);
+          const refreshUrl = userFid
+            ? `/api/ideas/${initialIdea.id}?user_fid=${userFid}`
+            : `/api/ideas/${initialIdea.id}`;
+          const refreshRes = await fetch(refreshUrl);
           if (refreshRes.ok) {
             const refreshData = await refreshRes.json();
             setDetailData(refreshData.data);
@@ -442,7 +450,10 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       // Refresh detail data to update UI
-      const refreshRes = await fetch(`/api/ideas/${initialIdea.id}`);
+      const refreshUrl = userFid
+        ? `/api/ideas/${initialIdea.id}?user_fid=${userFid}`
+        : `/api/ideas/${initialIdea.id}`;
+      const refreshRes = await fetch(refreshUrl);
       if (refreshRes.ok) {
         const refreshData = await refreshRes.json();
         console.log("Refreshed idea data:", refreshData.data?.fundingHistory?.length, "funding entries");
@@ -838,13 +849,16 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         <CompletedSection winningBuild={winningBuild} solutionUrl={idea.solution_url} />
       )}
 
-      {/* User's Contribution (from database) */}
+      {/* User's Contribution (from API, not limited to last 10) */}
       {(() => {
-        const userContribution = fundingHistory
+        // Use userContribution from API if available (accurate), fallback to fundingHistory (may be incomplete)
+        const userContribution = detailData?.userContribution ?? fundingHistory
           .filter(f => f.user_fid === userFid)
           .reduce((sum, f) => sum + f.amount, 0);
 
         if (!userFid || userContribution <= 0) return null;
+
+        const refundDelayDays = detailData?.refundDelayDays ?? 30;
 
         return (
           <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
@@ -855,8 +869,8 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
                   ${userContribution.toFixed(2)} USDC
                 </p>
               </div>
-              {/* Show withdraw button if refund is available (controlled by backend/database) */}
-              {idea.status === "open" && detailData?.idea?.refund_available && (
+              {/* Show withdraw button for open ideas - eligibility checked by backend */}
+              {idea.status === "open" && (
                 <button
                   onClick={handleWithdraw}
                   disabled={actionLoading === "withdraw" || !isConnected}
@@ -866,9 +880,9 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
                 </button>
               )}
             </div>
-            {idea.status === "open" && detailData?.idea?.refund_available && (
-              <p className="text-yellow-300 text-xs mt-2">
-                Refund available - no activity for 30+ days
+            {idea.status === "open" && refundDelayDays > 0 && (
+              <p className="text-gray-400 text-xs mt-2">
+                Refunds available {refundDelayDays} days after your last funding
               </p>
             )}
           </div>

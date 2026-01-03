@@ -189,7 +189,7 @@ export async function POST(request: NextRequest) {
     }
 
     // FIRST: Record the tx_hash in history table BEFORE making any changes
-    const txRecord = await recordTxHashUsed(body.tx_hash, "reward", body.user_fid, onChainAmountUsdc);
+    const txRecord = await recordTxHashUsed(body.tx_hash, "reward", body.user_fid, onChainAmountUsdc, body.idea_id);
     if (!txRecord.success) {
       return NextResponse.json(
         { error: txRecord.error },

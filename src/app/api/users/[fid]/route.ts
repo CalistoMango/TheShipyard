@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import { validateAuth } from "~/lib/auth";
-import { checkRefundEligibility } from "~/lib/refund";
+import { checkUserRefundEligibility, FundingRecord } from "~/lib/refund";
 import { parseId } from "~/lib/utils";
 
 /**
@@ -66,28 +66,28 @@ export async function GET(
       .order("created_at", { ascending: false })
       .limit(10);
 
-    // Get funding by user with idea status for refund eligibility
-    // IMPORTANT: Include refunded_at to show refund status
-    const { data: funding } = await supabase
+    // Get ALL funding by user (including refunded) for lifetime total
+    const { data: allFunding } = await supabase
       .from("funding")
       .select(
         `
+        id,
         amount,
         created_at,
         refunded_at,
+        idea_id,
         ideas:idea_id (
           id,
           title,
-          status,
-          updated_at,
-          created_at
+          status
         )
       `
       )
       .eq("funder_fid", userFid)
-      .is("refunded_at", null) // Only show un-refunded funding
-      .order("created_at", { ascending: false })
-      .limit(10);
+      .order("created_at", { ascending: false });
+
+    // Filter to unrefunded funding for eligibility calculations
+    const funding = allFunding?.filter((f) => !f.refunded_at) || [];
 
     // Get payouts received
     const { data: payouts } = await supabase
@@ -99,7 +99,8 @@ export async function GET(
 
     // Calculate stats
     const totalEarnings = payouts?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-    const totalFunded = funding?.reduce((sum, f) => sum + Number(f.amount), 0) || 0;
+    // total_funded is LIFETIME funding (including refunded amounts)
+    const totalFunded = allFunding?.reduce((sum, f) => sum + Number(f.amount), 0) || 0;
     const approvedBuilds = builds?.filter((b) => b.status === "approved").length || 0;
 
     // Build response - redact private data if not own profile
@@ -149,37 +150,71 @@ export async function GET(
 
     // Private: funding and payout details only visible to profile owner
     if (isOwnProfile) {
-      response.recent_funding = funding?.map((f) => {
-        // Supabase returns single-row joins as objects, not arrays
+      // V2: Group funding by idea to calculate per-user eligibility
+      // Each idea shows total funded amount and eligibility based on user's LATEST funding
+      const fundingByIdea = new Map<number, {
+        idea_id: number;
+        idea_title: string;
+        idea_status: string;
+        total_amount: number;
+        funding_records: FundingRecord[];
+        latest_created_at: string;
+      }>();
+
+      for (const f of funding || []) {
         const idea = f.ideas as unknown as {
           id: number;
           title: string;
           status: string;
-          updated_at: string | null;
-          created_at: string;
         } | null;
 
-        // Calculate refund eligibility using centralized function
-        const refundInfo = idea
-          ? checkRefundEligibility({
-              status: idea.status,
-              updated_at: idea.updated_at,
-              created_at: idea.created_at,
-            })
-          : { eligible: false, daysUntilRefund: 0 };
-        const refundEligible = refundInfo.eligible;
-        const daysUntilRefund = refundInfo.daysUntilRefund;
+        if (!idea) continue;
 
-        return {
-          idea_id: idea?.id,
-          idea_title: idea?.title || "Unknown",
-          idea_status: idea?.status || "unknown",
+        const existing = fundingByIdea.get(idea.id);
+        const fundingRecord: FundingRecord = {
+          id: f.id,
           amount: Number(f.amount),
           created_at: f.created_at,
-          refund_eligible: refundEligible,
-          days_until_refund: daysUntilRefund,
+          refunded_at: f.refunded_at,
         };
-      }) || [];
+
+        if (existing) {
+          existing.total_amount += Number(f.amount);
+          existing.funding_records.push(fundingRecord);
+          // Track latest funding date
+          if (f.created_at > existing.latest_created_at) {
+            existing.latest_created_at = f.created_at;
+          }
+        } else {
+          fundingByIdea.set(idea.id, {
+            idea_id: idea.id,
+            idea_title: idea.title,
+            idea_status: idea.status,
+            total_amount: Number(f.amount),
+            funding_records: [fundingRecord],
+            latest_created_at: f.created_at,
+          });
+        }
+      }
+
+      // Convert to array and calculate eligibility for each idea
+      response.recent_funding = Array.from(fundingByIdea.values()).map((ideaFunding) => {
+        // V2: Calculate per-user eligibility based on their LATEST funding for this idea
+        const refundInfo = checkUserRefundEligibility(
+          ideaFunding.idea_status,
+          ideaFunding.funding_records
+        );
+
+        return {
+          idea_id: ideaFunding.idea_id,
+          idea_title: ideaFunding.idea_title,
+          idea_status: ideaFunding.idea_status,
+          amount: ideaFunding.total_amount,
+          created_at: ideaFunding.latest_created_at, // Show latest funding date
+          refund_eligible: refundInfo.eligible,
+          days_until_refund: refundInfo.daysUntilRefund,
+        };
+      }).slice(0, 10); // Limit to 10 ideas
 
       response.recent_payouts = payouts?.map((p) => ({
         amount: Number(p.amount),

@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "~/lib/supabase";
 import type { DbIdea, DbUser, DbFunding, Idea, FundingEntry, WinningBuild } from "~/lib/types";
-import { checkRefundEligibility } from "~/lib/refund";
 import { parseId } from "~/lib/utils";
+import { REFUND_DELAY_DAYS } from "~/lib/constants";
 
 interface IdeaDetailResponse {
   idea: Idea;
   fundingHistory: FundingEntry[];
   totalFunders: number;
   winningBuild: WinningBuild | null;
+  userContribution?: number; // Total unrefunded contribution by requesting user
+  refundDelayDays: number; // For UI to show correct message
 }
 
 export async function GET(
@@ -25,6 +27,11 @@ export async function GET(
       );
     }
     const ideaId = parsed.id;
+
+    // Optional: get user's contribution if user_fid provided
+    const url = new URL(request.url);
+    const userFidParam = url.searchParams.get("user_fid");
+    const userFid = userFidParam ? parseInt(userFidParam, 10) : null;
 
     const supabase = createServerClient();
 
@@ -71,12 +78,9 @@ export async function GET(
       .eq("idea_id", ideaId)
       .is("refunded_at", null);
 
-    // Calculate refund eligibility
-    const { eligible: refundAvailable } = checkRefundEligibility({
-      status: row.status,
-      updated_at: row.updated_at,
-      created_at: row.created_at,
-    });
+    // V2: Refund availability is per-user, not per-idea
+    // Show that refunds are possible if idea is open (actual eligibility checked per-user)
+    const refundAvailable = row.status === "open";
 
     // Transform idea
     const idea: Idea = {
@@ -131,11 +135,26 @@ export async function GET(
       })
     );
 
+    // If user_fid provided, get their total unrefunded contribution (not limited to last 10)
+    let userContribution: number | undefined;
+    if (userFid && !isNaN(userFid)) {
+      const { data: userFundingData } = await supabase
+        .from("funding")
+        .select("amount")
+        .eq("idea_id", ideaId)
+        .eq("funder_fid", userFid)
+        .is("refunded_at", null);
+
+      userContribution = userFundingData?.reduce((sum, f) => sum + Number(f.amount), 0) || 0;
+    }
+
     const response: IdeaDetailResponse = {
       idea,
       fundingHistory,
       totalFunders: funderCount || 0,
       winningBuild,
+      userContribution,
+      refundDelayDays: REFUND_DELAY_DAYS,
     };
 
     return NextResponse.json({ data: response, error: null });

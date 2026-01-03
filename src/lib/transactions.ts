@@ -101,13 +101,15 @@ export async function checkTxHashNotUsed(
  * @param claimType - Type of claim
  * @param userFid - User FID who claimed
  * @param amount - Amount claimed in USDC
+ * @param ideaId - Optional idea ID for per-project tracking
  * @returns Success status and any error
  */
 export async function recordTxHashUsed(
   txHash: string,
   claimType: ClaimType,
   userFid: number,
-  amount: number
+  amount: number,
+  ideaId?: number
 ): Promise<{ success: boolean; alreadyUsed?: boolean; error?: string }> {
   const supabase = createServerClient();
 
@@ -118,6 +120,7 @@ export async function recordTxHashUsed(
       user_fid: userFid,
       claim_type: claimType,
       amount,
+      ...(ideaId !== undefined && { idea_id: ideaId }),
     });
 
   if (insertTxError) {

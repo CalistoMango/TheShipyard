@@ -99,8 +99,6 @@ export async function recordRefund(params: RecordRefundParams): Promise<RecordRe
 
   // Separate into refunded and unrefunded
   const unrefundedFunding = allFunding.filter((f) => !f.refunded_at);
-  const totalEverFundedUsdc = allFunding.reduce((sum, f) => sum + Number(f.amount), 0);
-  const totalUnrefundedUsdc = unrefundedFunding.reduce((sum, f) => sum + Number(f.amount), 0);
 
   // V3 SECURITY: The on-chain delta should be <= total unrefunded
   // But we're lenient: if on-chain succeeded, it's valid even if DB is out of sync
@@ -117,26 +115,64 @@ export async function recordRefund(params: RecordRefundParams): Promise<RecordRe
     console.warn("On-chain refund amount is 0, but tx was verified");
   }
 
-  // Only mark unrefunded funding as refunded (up to on-chain amount)
-  const fundingIds = unrefundedFunding.map((f) => f.id);
+  // Only mark unrefunded funding as refunded UP TO the on-chain delta amount
+  // This prevents marking new funding (added after signature) as refunded
+  // IMPORTANT: Only mark rows that fit entirely within the delta to avoid over-marking
+  let remainingToMark = onChainAmountUsdc;
+  const fundingIdsToMark: number[] = [];
+  let markedAmount = 0;
+  console.log(`[record-refund] onChainAmountUsdc=${onChainAmountUsdc}, unrefundedFunding.length=${unrefundedFunding.length}`);
+  for (const f of unrefundedFunding) {
+    const fundingAmount = Number(f.amount);
+    // Only include if this row fits entirely within remaining delta
+    if (fundingAmount > remainingToMark) {
+      console.log(`[record-refund] Skipping funding id=${f.id}, amount=${fundingAmount} > remaining=${remainingToMark}`);
+      continue;
+    }
+    console.log(`[record-refund] Adding funding id=${f.id}, amount=${fundingAmount}`);
+    fundingIdsToMark.push(f.id);
+    remainingToMark -= fundingAmount;
+    markedAmount += fundingAmount;
+  }
+  const fundingIds = fundingIdsToMark;
+
+  // Warn if we couldn't mark all of the on-chain delta (requires manual reconciliation)
+  if (remainingToMark > 0.01) { // Allow small rounding tolerance
+    console.warn(`[record-refund] Could not mark full delta: onChain=${onChainAmountUsdc}, marked=${markedAmount}, remaining=${remainingToMark}. May need manual reconciliation.`);
+  }
+  console.log(`[record-refund] fundingIds to mark: ${JSON.stringify(fundingIds)}`);
 
   // FIRST: Record the tx_hash in history table BEFORE making any changes
-  const txRecord = await recordTxHashUsed(tx_hash, "refund", user_fid, onChainAmountUsdc);
+  const txRecord = await recordTxHashUsed(tx_hash, "refund", user_fid, onChainAmountUsdc, idea_id);
   if (!txRecord.success) {
     return { success: false, error: txRecord.error, status: txRecord.alreadyUsed ? 409 : 500 };
   }
 
   // Mark funding for THIS idea as refunded
-  const { error: updateFundingError } = await supabase
-    .from("funding")
-    .update({
-      refunded_at: new Date().toISOString(),
-    })
-    .in("id", fundingIds);
+  // Use RPC to bypass audit trigger that blocks direct updates
+  if (fundingIds.length > 0) {
+    const { error: updateFundingError } = await supabase
+      .rpc("mark_funding_refunded", { funding_ids: fundingIds });
 
-  if (updateFundingError) {
-    console.error("Error updating funding records:", updateFundingError);
-    // Don't return error - tx_hash is already recorded
+    if (updateFundingError) {
+      // Fallback to direct update if RPC doesn't exist yet
+      console.error("Error with RPC mark_funding_refunded, trying direct update:", updateFundingError);
+      const { error: directUpdateError } = await supabase
+        .from("funding")
+        .update({ refunded_at: new Date().toISOString() })
+        .in("id", fundingIds);
+
+      if (directUpdateError) {
+        console.error("Direct update also failed:", directUpdateError);
+        // Don't return error - tx_hash is already recorded, on-chain is authoritative
+      } else {
+        console.log(`[record-refund] Successfully marked ${fundingIds.length} funding records as refunded (direct)`);
+      }
+    } else {
+      console.log(`[record-refund] Successfully marked ${fundingIds.length} funding records as refunded (RPC)`);
+    }
+  } else {
+    console.warn("[record-refund] No funding IDs to mark as refunded - this may indicate a DB sync issue");
   }
 
   // Update THIS idea's pool - use on-chain amount (authoritative)

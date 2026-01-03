@@ -157,7 +157,7 @@ export interface Idea {
   cast_hash: string | null;
   related_casts: string[]; // cast hashes of duplicate suggestions
   solution_url: string | null; // URL to existing solution (from approved report)
-  refund_available?: boolean; // true if 30+ days since last activity (calculated by backend)
+  refund_available?: boolean; // true if idea is open (per-user eligibility checked separately)
   created_at: string;
 }
 

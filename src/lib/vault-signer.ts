@@ -154,8 +154,8 @@ export async function verifyRefundTransaction(
 
     const vaultAddress = process.env.VAULT_ADDRESS?.toLowerCase();
     if (!vaultAddress) {
-      console.warn("VAULT_ADDRESS not set - skipping on-chain verification");
-      return { verified: true, amount: 0n, error: "Verification skipped - no vault" };
+      console.error("VAULT_ADDRESS not set - cannot verify refund transaction");
+      return { verified: false, amount: 0n, error: "Server configuration error - vault address not set" };
     }
 
     const vault = getVaultContract();

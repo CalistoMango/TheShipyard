@@ -41,6 +41,7 @@ interface RewardProject {
   idea_id: number;
   title: string;
   reward: number;
+  claimable: number;
 }
 
 interface RewardsData {
@@ -374,13 +375,13 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
                 {rewardsData.builderProjects.map((p) => (
                   <div key={`builder-${p.idea_id}`} className="flex justify-between text-gray-400">
                     <span className="truncate mr-2">{p.title}</span>
-                    <span className="text-emerald-400 flex-shrink-0">${p.reward.toFixed(2)}</span>
+                    <span className="text-emerald-400 flex-shrink-0">${p.claimable.toFixed(2)}</span>
                   </div>
                 ))}
                 {rewardsData.submittedIdeas.map((p) => (
                   <div key={`submitter-${p.idea_id}`} className="flex justify-between text-gray-400">
                     <span className="truncate mr-2">{p.title} (idea)</span>
-                    <span className="text-blue-400 flex-shrink-0">${p.reward.toFixed(2)}</span>
+                    <span className="text-blue-400 flex-shrink-0">${p.claimable.toFixed(2)}</span>
                   </div>
                 ))}
               </div>
