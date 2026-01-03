@@ -17,6 +17,7 @@ const EXPECTED_TABLES = [
   "builds",
   "votes",
   "payouts",
+  "reports",
 ];
 
 async function testConnection() {

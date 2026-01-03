@@ -291,9 +291,9 @@ export function AdminTab() {
                   <button
                     onClick={() => handleApproveReport(report.id)}
                     disabled={actionLoading === report.id}
-                    className="flex-1 bg-green-600 hover:bg-green-500 disabled:bg-green-600/50 text-white py-2 rounded-lg text-sm font-medium"
+                    className="flex-1 bg-red-600 hover:bg-red-500 disabled:bg-red-600/50 text-white py-2 rounded-lg text-sm font-medium"
                   >
-                    {actionLoading === report.id ? "..." : "Mark Built"}
+                    {actionLoading === report.id ? "..." : "Confirm Exists"}
                   </button>
                   <button
                     onClick={() => handleDismissReport(report.id)}

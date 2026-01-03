@@ -46,7 +46,8 @@ export async function POST(
         idea_id,
         ideas:idea_id (
           pool,
-          submitter_fid
+          submitter_fid,
+          status
         )
       `
       )
@@ -77,9 +78,28 @@ export async function POST(
     }
 
     // Supabase single-row joins return objects, not arrays
-    const idea = build.ideas as unknown as { pool: number; submitter_fid: number | null } | null;
+    const idea = build.ideas as unknown as { pool: number; submitter_fid: number | null; status: string } | null;
     const pool = idea ? Number(idea.pool) : 0;
     const submitterFid = idea?.submitter_fid;
+    const ideaStatus = idea?.status;
+
+    // Check if idea was already marked as "already_exists" by a report approval
+    // In this case, we should reject the build and allow funders to claim refunds
+    if (ideaStatus === "already_exists") {
+      // Reject the build since idea already has a pre-existing solution
+      await supabase.from("builds").update({ status: "rejected" }).eq("id", buildId);
+
+      return NextResponse.json({
+        status: "rejected",
+        build_id: buildId,
+        outcome: {
+          votes_approve: build.votes_approve,
+          votes_reject: build.votes_reject,
+          total_votes: build.votes_approve + build.votes_reject,
+        },
+        message: "Build rejected - idea was marked as already existing. Funders can claim refunds.",
+      });
+    }
 
     // Determine outcome: approve requires > 50%, tie = rejected
     const totalVotes = build.votes_approve + build.votes_reject;

@@ -33,6 +33,9 @@ const getStatusBadge = (status: string) => {
   if (status === "completed") {
     return <span className="px-2 py-0.5 bg-green-500/20 text-green-300 text-xs rounded-full">✅ Built</span>;
   }
+  if (status === "already_exists") {
+    return <span className="px-2 py-0.5 bg-red-500/20 text-red-300 text-xs rounded-full">⚠️ Already Exists</span>;
+  }
   return null;
 };
 

@@ -71,9 +71,9 @@ export async function POST(
       return NextResponse.json({ error: "Idea not found" }, { status: 404 });
     }
 
-    if (idea.status !== "open") {
+    if (idea.status !== "open" && idea.status !== "already_exists") {
       return NextResponse.json(
-        { error: "Refunds are only available for open ideas" },
+        { error: "Refunds are only available for open or already-exists ideas" },
         { status: 400 }
       );
     }

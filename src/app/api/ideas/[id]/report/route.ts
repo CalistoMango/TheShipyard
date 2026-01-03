@@ -76,10 +76,10 @@ export async function POST(
       );
     }
 
-    // Check if idea is already completed
-    if (idea.status === "completed") {
+    // Check if idea is already completed or already_exists
+    if (idea.status === "completed" || idea.status === "already_exists") {
       return NextResponse.json(
-        { data: null, error: "Idea is already marked as completed" },
+        { data: null, error: "Cannot report - idea is already marked as completed or already exists" },
         { status: 400 }
       );
     }
@@ -117,8 +117,12 @@ export async function POST(
 
     if (reportError) {
       console.error("Error creating report:", reportError);
+      // Surface the actual error in development for debugging
+      const errorMessage = process.env.NODE_ENV === "development"
+        ? `Failed to create report: ${reportError.message}`
+        : "Failed to create report";
       return NextResponse.json(
-        { data: null, error: "Failed to create report" },
+        { data: null, error: errorMessage },
         { status: 500 }
       );
     }

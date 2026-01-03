@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     ]);
 
     // Ideas by status
-    const [openIdeas, votingIdeas, completedIdeas] = await Promise.all([
+    const [openIdeas, votingIdeas, completedIdeas, alreadyExistsIdeas] = await Promise.all([
       supabase
         .from("ideas")
         .select("*", { count: "exact", head: true })
@@ -37,6 +37,10 @@ export async function GET(request: NextRequest) {
         .from("ideas")
         .select("*", { count: "exact", head: true })
         .eq("status", "completed"),
+      supabase
+        .from("ideas")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "already_exists"),
     ]);
 
     // Builds by status
@@ -81,6 +85,7 @@ export async function GET(request: NextRequest) {
           open: openIdeas.count || 0,
           voting: votingIdeas.count || 0,
           completed: completedIdeas.count || 0,
+          already_exists: alreadyExistsIdeas.count || 0,
         },
         builds: {
           total: builds.count || 0,

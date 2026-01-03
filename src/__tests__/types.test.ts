@@ -14,8 +14,8 @@ import type {
 describe("Types", () => {
   describe("IdeaStatus", () => {
     it("should have valid status values", () => {
-      const statuses: IdeaStatus[] = ["open", "voting", "completed"];
-      expect(statuses).toHaveLength(3);
+      const statuses: IdeaStatus[] = ["open", "voting", "completed", "already_exists"];
+      expect(statuses).toHaveLength(4);
     });
   });
 

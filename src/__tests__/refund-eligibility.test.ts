@@ -24,7 +24,7 @@ describe("Refund Eligibility", () => {
       vi.useRealTimers();
     });
 
-    it("should return not eligible when idea status is not open", () => {
+    it("should return not eligible when idea status is completed", () => {
       const funding: FundingRecord[] = [
         { id: "1", amount: 10, created_at: "2025-01-01T00:00:00Z", refunded_at: null },
       ];
@@ -34,6 +34,46 @@ describe("Refund Eligibility", () => {
       expect(result.eligible).toBe(false);
       expect(result.totalUnrefunded).toBe(0);
       expect(result.latestFundingAt).toBeNull();
+    });
+
+    it("should return not eligible when idea status is voting", () => {
+      const funding: FundingRecord[] = [
+        { id: "1", amount: 10, created_at: "2025-01-01T00:00:00Z", refunded_at: null },
+      ];
+
+      const result = checkUserRefundEligibility("voting", funding);
+
+      expect(result.eligible).toBe(false);
+      expect(result.totalUnrefunded).toBe(0);
+      expect(result.latestFundingAt).toBeNull();
+    });
+
+    it("should return immediately eligible when idea status is already_exists", () => {
+      // User funded very recently (5 days ago) - normally would need to wait
+      const funding: FundingRecord[] = [
+        { id: "1", amount: 10, created_at: "2025-02-10T00:00:00Z", refunded_at: null },
+      ];
+
+      const result = checkUserRefundEligibility("already_exists", funding);
+
+      // Should be immediately eligible regardless of timing
+      expect(result.eligible).toBe(true);
+      expect(result.totalUnrefunded).toBe(10);
+      expect(result.daysUntilRefund).toBe(0);
+      expect(result.latestFundingAt).toEqual(new Date("2025-02-10T00:00:00Z"));
+    });
+
+    it("should return immediately eligible for already_exists even with multiple fundings", () => {
+      const funding: FundingRecord[] = [
+        { id: "1", amount: 5, created_at: "2025-02-10T00:00:00Z", refunded_at: null },
+        { id: "2", amount: 10, created_at: "2025-02-14T00:00:00Z", refunded_at: null },
+      ];
+
+      const result = checkUserRefundEligibility("already_exists", funding);
+
+      expect(result.eligible).toBe(true);
+      expect(result.totalUnrefunded).toBe(15);
+      expect(result.daysUntilRefund).toBe(0);
     });
 
     it("should return not eligible when user has no funding", () => {

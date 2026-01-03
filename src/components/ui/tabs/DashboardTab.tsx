@@ -75,7 +75,7 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
   const { switchChain } = useSwitchChain();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeSubTab, setActiveSubTab] = useState<DashboardSubTab>("ideas");
+  const [activeSubTab, setActiveSubTab] = useState<DashboardSubTab>("funded");
   const [withdrawingIdeaId, setWithdrawingIdeaId] = useState<number | null>(null);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
@@ -351,11 +351,21 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
                     {f.idea_status === "completed" && (
                       <span className="text-green-400 text-xs">Completed</span>
                     )}
+                    {f.idea_status === "already_exists" && (
+                      <span className="text-red-400 text-xs">Already Exists</span>
+                    )}
                   </div>
                 </div>
 
-                {/* Refund section for open ideas */}
-                {f.idea_status === "open" && (
+                {/* Warning for already_exists ideas */}
+                {f.idea_status === "already_exists" && (
+                  <div className="mt-2 bg-red-500/10 border border-red-500/30 rounded-lg p-2 text-red-400 text-xs">
+                    This idea already exists. Please reclaim your funds.
+                  </div>
+                )}
+
+                {/* Refund section for open or already_exists ideas */}
+                {(f.idea_status === "open" || f.idea_status === "already_exists") && (
                   <div className="mt-3 pt-3 border-t border-gray-700">
                     <button
                       onClick={(e) => {

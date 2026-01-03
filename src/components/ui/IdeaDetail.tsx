@@ -50,6 +50,9 @@ const getStatusBadge = (status: string) => {
   if (status === "completed") {
     return <span className="px-2 py-0.5 bg-green-500/20 text-green-300 text-xs rounded-full">✅ Built</span>;
   }
+  if (status === "already_exists") {
+    return <span className="px-2 py-0.5 bg-red-500/20 text-red-300 text-xs rounded-full">⚠️ Already Exists</span>;
+  }
   return null;
 };
 
@@ -101,6 +104,30 @@ function CompletedSection({ winningBuild, solutionUrl }: { winningBuild: Winning
       >
         View App ↗
       </a>
+    </div>
+  );
+}
+
+function AlreadyExistsSection({ solutionUrl }: { solutionUrl: string | null }) {
+  return (
+    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mt-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xl">⚠️</span>
+        <h3 className="font-semibold text-red-300">This idea already exists</h3>
+      </div>
+      <p className="text-gray-300 text-sm mb-3">
+        A pre-existing solution was found for this idea. Funders can reclaim their contributions.
+      </p>
+      {solutionUrl && (
+        <a
+          href={solutionUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block w-full bg-red-600 hover:bg-red-500 text-white py-2 rounded-lg font-medium text-center"
+        >
+          View Existing Solution ↗
+        </a>
+      )}
     </div>
   );
 }
@@ -568,8 +595,8 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         ← Back to ideas
       </button>
 
-      {/* Error message */}
-      {actionError && (
+      {/* Error message - only show outside modals */}
+      {actionError && !showReportModal && !showBuildModal && !showFundModal && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-red-300 text-sm">
           {actionError}
         </div>
@@ -809,6 +836,12 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
             <p className="text-gray-400 text-sm mb-4">
               Know of an app that already does this? Share the link and we&apos;ll review it.
             </p>
+            {/* Error message inside modal */}
+            {actionError && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-300 text-sm mb-4">
+                {actionError}
+              </div>
+            )}
             <input
               type="url"
               placeholder="URL to existing solution"
@@ -854,6 +887,11 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         <CompletedSection winningBuild={winningBuild} solutionUrl={idea.solution_url} />
       )}
 
+      {/* Already Exists Section (if already_exists) */}
+      {idea.status === "already_exists" && (
+        <AlreadyExistsSection solutionUrl={idea.solution_url} />
+      )}
+
       {/* User's Contribution (from API, not limited to last 10) */}
       {(() => {
         // Use userContribution from API if available (accurate), fallback to fundingHistory (may be incomplete)
@@ -876,8 +914,8 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
                   ${userContribution.toFixed(2)} USDC
                 </p>
               </div>
-              {/* Show withdraw button for open ideas - disabled if not eligible */}
-              {idea.status === "open" && (
+              {/* Show withdraw button for open or already_exists ideas - disabled if not eligible */}
+              {(idea.status === "open" || idea.status === "already_exists") && (
                 <button
                   onClick={handleWithdraw}
                   disabled={actionLoading === "withdraw" || !isConnected || !canWithdraw}
@@ -892,6 +930,11 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
                 {canWithdraw
                   ? "You can claim a refund now"
                   : `Refund available in ${daysRemaining} day${daysRemaining !== 1 ? "s" : ""}`}
+              </p>
+            )}
+            {idea.status === "already_exists" && (
+              <p className="text-red-400 text-xs mt-2">
+                This idea already exists. You can claim a full refund now.
               </p>
             )}
           </div>

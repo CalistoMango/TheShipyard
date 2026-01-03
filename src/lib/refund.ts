@@ -62,7 +62,10 @@ export interface FundingRecord {
  * - Based on when THEY last funded, not idea activity
  * - All unrefunded funding becomes eligible together (no partial refunds)
  *
- * @param ideaStatus - The idea's current status (must be "open")
+ * V3: Added "already_exists" status support
+ * - If idea already exists (pre-existing solution), refunds are immediate (no 30-day wait)
+ *
+ * @param ideaStatus - The idea's current status (must be "open" or "already_exists")
  * @param userFunding - Array of user's funding records for this idea
  * @returns UserRefundEligibility with timing info
  */
@@ -70,8 +73,8 @@ export function checkUserRefundEligibility(
   ideaStatus: string,
   userFunding: FundingRecord[]
 ): UserRefundEligibility {
-  // Idea must be open for refunds
-  if (ideaStatus !== "open") {
+  // Idea must be open or already_exists for refunds
+  if (ideaStatus !== "open" && ideaStatus !== "already_exists") {
     return {
       eligible: false,
       daysSinceLastFunding: 0,
@@ -105,6 +108,17 @@ export function checkUserRefundEligibility(
     (sum, f) => sum + Number(f.amount),
     0
   );
+
+  // For "already_exists" status, refunds are immediate (no 30-day wait)
+  if (ideaStatus === "already_exists") {
+    return {
+      eligible: true,
+      daysSinceLastFunding: 0,
+      daysUntilRefund: 0,
+      latestFundingAt,
+      totalUnrefunded,
+    };
+  }
 
   // Check if 30 days have passed since the latest funding
   const daysSinceLastFunding = (Date.now() - latestFundingAt.getTime()) / (1000 * 60 * 60 * 24);

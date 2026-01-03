@@ -54,31 +54,18 @@ export async function POST(
     const now = new Date().toISOString();
 
     if (body.action === "approve") {
-      // Update report status
-      const { error: updateReportError } = await supabase
-        .from("reports")
-        .update({
-          status: "approved",
-          reviewed_at: now,
-        })
-        .eq("id", reportId);
-
-      if (updateReportError) {
-        console.error("Error updating report:", updateReportError);
-        return NextResponse.json(
-          { error: "Failed to update report" },
-          { status: 500 }
-        );
-      }
-
-      // Mark idea as completed and set solution_url
-      const { error: updateIdeaError } = await supabase
+      // Atomically update idea to already_exists only if not completed
+      // This prevents race conditions with concurrent build approvals
+      const { data: updatedIdea, error: updateIdeaError } = await supabase
         .from("ideas")
         .update({
-          status: "completed",
+          status: "already_exists",
           solution_url: report.url,
         })
-        .eq("id", report.idea_id);
+        .eq("id", report.idea_id)
+        .neq("status", "completed")
+        .select("id")
+        .maybeSingle();
 
       if (updateIdeaError) {
         console.error("Error updating idea:", updateIdeaError);
@@ -88,12 +75,72 @@ export async function POST(
         );
       }
 
+      // If no row was updated, idea was already completed - dismiss the report
+      if (!updatedIdea) {
+        const { error: dismissError } = await supabase
+          .from("reports")
+          .update({
+            status: "dismissed",
+            reviewed_at: now,
+          })
+          .eq("id", reportId);
+
+        if (dismissError) {
+          console.error("Error dismissing report:", dismissError);
+          return NextResponse.json(
+            { error: "Failed to dismiss report - idea was already completed" },
+            { status: 500 }
+          );
+        }
+
+        return NextResponse.json(
+          { error: "Cannot approve - idea was already completed by an approved build. Report has been dismissed." },
+          { status: 400 }
+        );
+      }
+
+      // Update report status with retry logic to avoid inconsistent state
+      let reportUpdateSuccess = false;
+      let lastReportError: unknown = null;
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const { error: updateReportError } = await supabase
+          .from("reports")
+          .update({
+            status: "approved",
+            reviewed_at: now,
+          })
+          .eq("id", reportId);
+
+        if (!updateReportError) {
+          reportUpdateSuccess = true;
+          break;
+        }
+        lastReportError = updateReportError;
+        // Brief delay before retry
+        await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+      }
+
+      if (!reportUpdateSuccess) {
+        console.error("Error updating report after retries:", lastReportError);
+        // Idea was already updated - return partial success so admin knows to check
+        return NextResponse.json(
+          {
+            error: "Idea marked as already_exists but report status update failed. Please manually verify report status.",
+            partial_success: true,
+            idea_id: report.idea_id,
+            idea_status: "already_exists",
+          },
+          { status: 500 }
+        );
+      }
+
       return NextResponse.json({
         data: {
           report_id: reportId,
           action: "approved",
           idea_id: report.idea_id,
-          idea_status: "completed",
+          idea_status: "already_exists",
           solution_url: report.url,
         },
         error: null,
