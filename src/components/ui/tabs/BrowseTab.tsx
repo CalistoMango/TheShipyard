@@ -296,7 +296,7 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-white truncate">{idea.title}</h3>
-                        {(idea.status === "voting" || idea.status === "already_exists") && getStatusBadge(idea.status)}
+                        {idea.status === "voting" && getStatusBadge(idea.status)}
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <span className={`px-2 py-0.5 rounded-full text-xs ${getCategoryColor(idea.category)}`}>
@@ -309,6 +309,12 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                       <div className="flex items-center">
                         <span className="px-3 py-1.5 bg-green-500/20 text-green-300 text-sm rounded-full font-medium">
                           ✅ Built
+                        </span>
+                      </div>
+                    ) : idea.status === "already_exists" ? (
+                      <div className="flex items-center">
+                        <span className="px-3 py-1.5 bg-red-500/20 text-red-300 text-sm rounded-full font-medium">
+                          ⚠️ Already Exists
                         </span>
                       </div>
                     ) : (
