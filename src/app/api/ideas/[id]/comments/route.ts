@@ -8,12 +8,16 @@ const NEYNAR_API_URL = "https://api.neynar.com/v2";
 interface NeynarCast {
   hash: string;
   author: {
+    fid: number;
     username: string;
     display_name: string;
   };
   text: string;
   timestamp: string;
 }
+
+// The Shipyard's FID - filter out automated replies from this account
+const SHIPYARD_FID = 2005449;
 
 // GET /api/ideas/[id]/comments - Fetch Farcaster replies for an idea
 export async function GET(
@@ -97,9 +101,14 @@ export async function GET(
 
     // Handle different response structures
     const originalCast = neynarData.conversation?.cast;
-    const replies = originalCast?.direct_replies ||
+    const allReplies = originalCast?.direct_replies ||
                     neynarData.direct_replies ||
                     [];
+
+    // Filter out The Shipyard's automated replies
+    const replies = allReplies.filter(
+      (reply: NeynarCast) => reply.author?.fid !== SHIPYARD_FID
+    );
 
     // Transform to Comment type
     const comments: Comment[] = replies.map((reply: NeynarCast) => ({

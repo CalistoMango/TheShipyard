@@ -97,6 +97,27 @@ export async function GET(
       .order("created_at", { ascending: false })
       .limit(10);
 
+    // Get builds in voting status that user can vote on (not their own)
+    const { data: votingBuilds } = await supabase
+      .from("builds")
+      .select(`
+        id,
+        idea_id,
+        builder_fid,
+        ideas:idea_id (title, pool)
+      `)
+      .eq("status", "voting")
+      .neq("builder_fid", userFid);
+
+    // Get builds user already voted on
+    const { data: userVotes } = await supabase
+      .from("build_votes")
+      .select("build_id")
+      .eq("voter_fid", userFid);
+
+    const votedBuildIds = new Set(userVotes?.map((v) => v.build_id) || []);
+    const pendingVoteBuilds = votingBuilds?.filter((b) => !votedBuildIds.has(b.id)) || [];
+
     // Calculate stats
     const totalEarnings = payouts?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
     // total_funded is ALL historical funding EXCEPT refunded amounts
@@ -147,6 +168,18 @@ export async function GET(
           created_at: b.created_at,
         };
       }) || [],
+      // Pending votes: builds user can vote on (visible to profile owner only)
+      ...(isOwnProfile && {
+        pending_votes: pendingVoteBuilds.map((b) => {
+          const idea = b.ideas as unknown as { title: string; pool: number } | null;
+          return {
+            id: b.id,
+            idea_id: b.idea_id,
+            idea_title: idea?.title || "Unknown",
+            idea_pool: idea ? Number(idea.pool) : 0,
+          };
+        }),
+      }),
     };
 
     // Private: funding and payout details only visible to profile owner

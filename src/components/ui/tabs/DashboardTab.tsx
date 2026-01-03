@@ -47,11 +47,19 @@ interface RecentFunding {
   days_until_refund: number;
 }
 
+interface PendingVote {
+  id: string;
+  idea_id: number;
+  idea_title: string;
+  idea_pool: number;
+}
+
 interface UserData {
   stats: UserStats;
   recent_ideas: RecentIdea[];
   recent_builds: RecentBuild[];
   recent_funding: RecentFunding[];
+  pending_votes?: PendingVote[];
 }
 
 type DashboardSubTab = "ideas" | "funded" | "building" | "votes";
@@ -233,8 +241,8 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
   const recentBuilds = userData?.recent_builds || [];
   const recentFunding = userData?.recent_funding || [];
 
-  // Find builds that are in voting status
-  const pendingVotes = recentBuilds.filter((b) => b.status === "voting");
+  // Pending votes from API (builds user can vote on, excludes already voted)
+  const pendingVotes = userData?.pending_votes || [];
 
   return (
     <div className="space-y-4">
@@ -280,7 +288,7 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
           onClick={() => setActiveSubTab("votes")}
           className={`pb-2 ${activeSubTab === "votes" ? "border-b-2 border-white text-white font-medium" : "text-gray-400"}`}
         >
-          Votes
+          Votes{pendingVotes.length > 0 && ` (${pendingVotes.length})`}
         </button>
       </div>
 
@@ -434,7 +442,17 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
           {pendingVotes.length === 0 ? (
             <p className="text-gray-500 text-sm py-4">No active votes to participate in.</p>
           ) : (
-            pendingVotes.map((build) => (
+            <>
+              {/* Info banner */}
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+                <div className="flex items-center gap-2">
+                  <span>🗳️</span>
+                  <p className="text-amber-300 text-sm">
+                    {pendingVotes.length} idea{pendingVotes.length > 1 ? "s" : ""} need{pendingVotes.length === 1 ? "s" : ""} your vote to help builders get rewarded!
+                  </p>
+                </div>
+              </div>
+              {pendingVotes.map((build) => (
               <button
                 key={build.id}
                 onClick={() => handleIdeaClick(build.idea_id)}
@@ -450,27 +468,12 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
                   </span>
                 </div>
               </button>
-            ))
+              ))}
+            </>
           )}
         </div>
       )}
 
-      {/* Pending Votes Banner */}
-      {pendingVotes.length > 0 && (
-        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span>🗳️</span>
-            <span className="text-yellow-300 font-medium">{pendingVotes.length} pending vote{pendingVotes.length > 1 ? "s" : ""}</span>
-          </div>
-          <p className="text-sm text-gray-300">{pendingVotes[0].idea_title} needs your vote</p>
-          <button
-            onClick={() => handleIdeaClick(pendingVotes[0].idea_id)}
-            className="mt-2 w-full bg-yellow-600 hover:bg-yellow-500 text-white py-2 rounded-lg font-medium"
-          >
-            Vote Now
-          </button>
-        </div>
-      )}
     </div>
   );
 }
