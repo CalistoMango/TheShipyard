@@ -6,7 +6,7 @@ import { Footer } from "~/components/ui/Footer";
 import { BrowseTab } from "~/components/ui/tabs/BrowseTab";
 import { LeaderboardTab } from "~/components/ui/tabs/LeaderboardTab";
 import { DashboardTab } from "~/components/ui/tabs/DashboardTab";
-import { ProfileTab } from "~/components/ui/tabs/ProfileTab";
+import { ReferralTab } from "~/components/ui/tabs/ReferralTab";
 import { AdminTab } from "~/components/ui/tabs/AdminTab";
 import { IdeaDetail } from "~/components/ui/IdeaDetail";
 import { LaunchEngagementModal } from "~/components/ui/LaunchEngagementModal";
@@ -16,7 +16,7 @@ export enum Tab {
   Browse = "browse",
   Leaderboard = "leaderboard",
   Dashboard = "dashboard",
-  Profile = "profile",
+  Referral = "referral",
   Admin = "admin",
 }
 
@@ -109,8 +109,8 @@ export default function App() {
           <>
             {currentTab === Tab.Browse && <BrowseTab onSelectIdea={setSelectedIdea} />}
             {currentTab === Tab.Leaderboard && <LeaderboardTab />}
-            {currentTab === Tab.Dashboard && <DashboardTab onSelectIdea={setSelectedIdea} />}
-            {currentTab === Tab.Profile && <ProfileTab onOpenAdmin={() => handleTabChange(Tab.Admin)} onSelectIdea={setSelectedIdea} />}
+            {currentTab === Tab.Dashboard && <DashboardTab onSelectIdea={setSelectedIdea} onOpenAdmin={() => handleTabChange(Tab.Admin)} />}
+            {currentTab === Tab.Referral && <ReferralTab />}
             {currentTab === Tab.Admin && <AdminTab />}
           </>
         )}

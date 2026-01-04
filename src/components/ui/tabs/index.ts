@@ -1,7 +1,7 @@
 export { BrowseTab } from './BrowseTab';
 export { LeaderboardTab } from './LeaderboardTab';
 export { DashboardTab } from './DashboardTab';
-export { ProfileTab } from './ProfileTab';
+export { ReferralTab } from './ReferralTab';
 export { AdminTab } from './AdminTab';
 
 // Legacy exports (kept for reference, can be removed later)

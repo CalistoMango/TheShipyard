@@ -31,11 +31,11 @@ export const Footer: React.FC<FooterProps> = ({ activeTab, setActiveTab }) => (
         <span className="text-xs">Dashboard</span>
       </button>
       <button
-        onClick={() => setActiveTab(Tab.Profile)}
-        className={`flex flex-col items-center gap-1 ${activeTab === Tab.Profile ? "text-white" : "text-gray-500"}`}
+        onClick={() => setActiveTab(Tab.Referral)}
+        className={`flex flex-col items-center gap-1 ${activeTab === Tab.Referral ? "text-white" : "text-gray-500"}`}
       >
-        <span className="text-xl">👤</span>
-        <span className="text-xs">Profile</span>
+        <span className="text-xl">🔗</span>
+        <span className="text-xs">Referral</span>
       </button>
     </div>
   </div>
