@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import type { Idea, Category } from "~/lib/types";
-import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT, PLATFORM_FEE_PERCENT } from "~/lib/constants";
+import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT, PLATFORM_FEE_PERCENT, PLATFORM_FID } from "~/lib/constants";
 import { useInfiniteIdeas } from "~/lib/hooks/useIdeas";
 
 interface BrowseTabProps {
@@ -106,7 +106,7 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
           </div>
           <button
             onClick={() => setIsHelpOpen(true)}
-            className="text-gray-500 hover:text-gray-300 text-xs underline transition-colors whitespace-nowrap"
+            className="text-gray-300 hover:text-white text-xs underline transition-colors whitespace-nowrap"
           >
             How it works
           </button>
@@ -144,7 +144,7 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
 
               <div>
                 <h3 className="font-semibold text-white mb-1">How to Submit an Idea</h3>
-                <p className="mb-2">
+                <p>
                   Post your idea in the{" "}
                   <span
                     className="text-blue-400 cursor-pointer hover:underline"
@@ -169,11 +169,33 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                   >
                     /someone-build
                   </span>{" "}
-                  channel on Farcaster.
+                  channel on Farcaster, or reply to any cast with{" "}
+                  <span
+                    className="text-blue-400 cursor-pointer hover:underline"
+                    onClick={() => {
+                      setIsHelpOpen(false);
+                      sdk.actions.viewProfile({ fid: PLATFORM_FID });
+                    }}
+                  >
+                    @theshipyard
+                  </span>{" "}
+                  to submit it as an idea!
                 </p>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-white mb-1">Building an Idea</h3>
                 <p>
-                  Or reply to any cast with <span className="text-blue-400">@theshipyard</span> to
-                  submit it as an idea!
+                  Find an idea you can build and submit your implementation. The community
+                  then votes for 48 hours — if more than half approve, you claim the bounty pool!
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-white mb-1">Upvoting</h3>
+                <p>
+                  Upvote ideas you want to see built. Popular ideas get more visibility
+                  and attract more funding.
                 </p>
               </div>
 
@@ -184,23 +206,9 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                   <li>{BUILDER_FEE_PERCENT}% of the pool goes to the builder</li>
                   <li>{SUBMITTER_FEE_PERCENT}% goes to the idea submitter</li>
                   <li>{PLATFORM_FEE_PERCENT}% goes to the platform</li>
+                  <li>Ideas with $100+ pools enter race mode</li>
+                  <li>Refunds available after 30 days if not built</li>
                 </ul>
-              </div>
-
-              <div>
-                <h3 className="font-semibold text-white mb-1">Building an Idea</h3>
-                <p>
-                  Find an idea you can build, submit your implementation, and if the community
-                  approves it, you claim the bounty pool!
-                </p>
-              </div>
-
-              <div>
-                <h3 className="font-semibold text-white mb-1">Upvoting</h3>
-                <p>
-                  Upvote ideas you want to see built. Popular ideas get more visibility
-                  and attract more funding.
-                </p>
               </div>
             </div>
 
@@ -300,7 +308,7 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                     idea.hasVotingBuilds
                       ? "border-amber-500"
                       : idea.status === "completed"
-                        ? "border-green-500"
+                        ? "border-green-600"
                         : idea.status === "already_exists"
                           ? "border-red-500/50"
                           : "border-gray-700 hover:border-gray-600"
@@ -314,8 +322,8 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                   )}
                   {/* Built banner */}
                   {idea.status === "completed" && !idea.hasVotingBuilds && (
-                    <div className="bg-green-500 px-4 py-1.5 flex items-center gap-2">
-                      <span className="text-black text-sm font-medium">✅ Successfully Built</span>
+                    <div className="bg-green-600 px-4 py-1.5 flex items-center justify-center gap-2">
+                      <span className="text-white text-sm font-medium">✅ Successfully Built</span>
                     </div>
                   )}
                   <div className="p-4">

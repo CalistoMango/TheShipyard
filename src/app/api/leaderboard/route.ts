@@ -74,6 +74,12 @@ export async function GET(request: NextRequest) {
         .select("submitter_fid")
         .not("submitter_fid", "is", null);
 
+      const { data: completedIdeas } = await supabase
+        .from("ideas")
+        .select("submitter_fid")
+        .eq("status", "completed")
+        .not("submitter_fid", "is", null);
+
       const { data: payouts } = await supabase
         .from("payouts")
         .select("recipient_fid, amount")
@@ -86,6 +92,17 @@ export async function GET(request: NextRequest) {
           submitterIdeas.set(
             idea.submitter_fid,
             (submitterIdeas.get(idea.submitter_fid) || 0) + 1
+          );
+        }
+      }
+
+      // Count completed (built) ideas per submitter
+      const submitterBuilt = new Map<number, number>();
+      for (const idea of completedIdeas || []) {
+        if (idea.submitter_fid) {
+          submitterBuilt.set(
+            idea.submitter_fid,
+            (submitterBuilt.get(idea.submitter_fid) || 0) + 1
           );
         }
       }
@@ -108,6 +125,7 @@ export async function GET(request: NextRequest) {
       const submitterStats = Array.from(allSubmitters).map((fid) => ({
         fid,
         ideas: submitterIdeas.get(fid) || 0,
+        built: submitterBuilt.get(fid) || 0,
         earnings: submitterEarnings.get(fid) || 0,
       }));
 
@@ -137,6 +155,7 @@ export async function GET(request: NextRequest) {
           name: user?.display_name || user?.username || `fid:${submitter.fid}`,
           pfp_url: user?.pfp_url || null,
           ideas: submitter.ideas,
+          built: submitter.built,
           earnings: submitter.earnings,
         };
       });

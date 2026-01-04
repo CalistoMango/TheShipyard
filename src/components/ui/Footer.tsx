@@ -20,8 +20,8 @@ export const Footer: React.FC<FooterProps> = ({ activeTab, setActiveTab }) => (
         onClick={() => setActiveTab(Tab.Leaderboard)}
         className={`flex flex-col items-center gap-1 ${activeTab === Tab.Leaderboard ? "text-white" : "text-gray-500"}`}
       >
-        <span className="text-xl">🏆</span>
-        <span className="text-xs">Leaders</span>
+        <span className="text-xl">🏅</span>
+        <span className="text-xs">Contributors</span>
       </button>
       <button
         onClick={() => setActiveTab(Tab.Dashboard)}

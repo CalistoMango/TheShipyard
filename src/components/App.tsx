@@ -9,6 +9,7 @@ import { DashboardTab } from "~/components/ui/tabs/DashboardTab";
 import { ProfileTab } from "~/components/ui/tabs/ProfileTab";
 import { AdminTab } from "~/components/ui/tabs/AdminTab";
 import { IdeaDetail } from "~/components/ui/IdeaDetail";
+import { LaunchEngagementModal } from "~/components/ui/LaunchEngagementModal";
 import type { Idea } from "~/lib/types";
 
 export enum Tab {
@@ -30,12 +31,23 @@ export default function App() {
 
   const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null);
   const [deepLinkLoading, setDeepLinkLoading] = useState(false);
+  const [showLaunchModal, setShowLaunchModal] = useState(false);
 
   useEffect(() => {
     if (isSDKLoaded) {
       setInitialTab(Tab.Browse);
     }
   }, [isSDKLoaded, setInitialTab]);
+
+  // Show launch engagement modal on first visit
+  useEffect(() => {
+    if (!isSDKLoaded) return;
+    const dismissed = localStorage.getItem("shipyard_launch_modal_dismissed");
+    if (!dismissed) {
+      const timer = setTimeout(() => setShowLaunchModal(true), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isSDKLoaded]);
 
   // Handle deep link to specific idea via ?idea=ID query param
   useEffect(() => {
@@ -62,6 +74,11 @@ export default function App() {
   const handleTabChange = (tab: Tab) => {
     setSelectedIdea(null);
     setActiveTab(tab);
+  };
+
+  const handleCloseLaunchModal = () => {
+    setShowLaunchModal(false);
+    localStorage.setItem("shipyard_launch_modal_dismissed", "true");
   };
 
   if (!isSDKLoaded || deepLinkLoading) {
@@ -100,6 +117,8 @@ export default function App() {
       </div>
 
       <Footer activeTab={currentTab as Tab} setActiveTab={handleTabChange} />
+
+      {showLaunchModal && <LaunchEngagementModal onClose={handleCloseLaunchModal} />}
     </div>
   );
 }

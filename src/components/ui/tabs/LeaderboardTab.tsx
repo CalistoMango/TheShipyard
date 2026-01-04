@@ -19,6 +19,7 @@ interface Submitter {
   name: string;
   pfp_url: string | null;
   ideas: number;
+  built: number;
   earnings: number;
 }
 
@@ -83,9 +84,9 @@ export function LeaderboardTab() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <h2 className="text-xl font-bold text-white">Leaderboards</h2>
+        <h2 className="text-xl font-bold text-white">Top Contributors</h2>
         <div className="flex items-center justify-center py-12">
-          <div className="text-gray-400">Loading leaderboards...</div>
+          <div className="text-gray-400">Loading contributors...</div>
         </div>
       </div>
     );
@@ -99,7 +100,8 @@ export function LeaderboardTab() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold text-white">Leaderboards</h2>
+      <h2 className="text-xl font-bold text-white">Top Contributors</h2>
+      <p className="text-gray-400 text-sm">The builders, funders, and idea submitters making The Shipyard happen.</p>
 
       {/* Tab Navigation */}
       <div className="flex gap-1 bg-gray-800/50 border border-gray-700 rounded-xl p-1">
@@ -174,7 +176,7 @@ export function LeaderboardTab() {
                       <ProfileLink fid={u.fid} className="text-white font-medium">
                         {u.name}
                       </ProfileLink>
-                      <div className="text-gray-500 text-xs">{u.ideas} ideas built</div>
+                      <div className="text-gray-500 text-xs">{u.ideas} submitted · {u.built ?? 0} built</div>
                     </div>
                     <div className="text-emerald-400 font-bold">${u.earnings}</div>
                   </div>

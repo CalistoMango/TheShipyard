@@ -68,6 +68,12 @@ export const APP_URL: string = (process.env.NEXT_PUBLIC_URL || '').replace(/\/$/
 export const APP_NAME: string = 'The Shipyard';
 
 /**
+ * The Farcaster FID for the platform account (@theshipyard).
+ * Used for viewing the platform profile via SDK.
+ */
+export const PLATFORM_FID: number = 2005449;
+
+/**
  * A brief description of the mini app's functionality.
  * Used in app store listings and metadata.
  */
@@ -178,6 +184,13 @@ export const APP_REQUIRED_CHAINS: string[] = [];
  * back button is pressed from the home page.
  */
 export const RETURN_URL: string | undefined = undefined;
+
+/**
+ * Cast hash for the launch announcement post.
+ * Used to direct users to like/recast for engagement modal.
+ * TODO: Update with actual launch cast hash once posted.
+ */
+export const LAUNCH_CAST_HASH: string = "";
 
 // PLEASE DO NOT UPDATE THIS
 export const SIGNED_KEY_REQUEST_VALIDATOR_EIP_712_DOMAIN = {

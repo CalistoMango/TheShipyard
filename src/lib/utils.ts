@@ -81,6 +81,11 @@ export async function getFarcasterDomainManifest(): Promise<Manifest> {
       splashImageUrl: APP_SPLASH_URL,
       splashBackgroundColor: APP_SPLASH_BACKGROUND_COLOR,
       webhookUrl: APP_WEBHOOK_URL,
+      // Recommended fields
+      tagline: 'Fund ideas. Race to build. Claim the pool.',
+      description: APP_DESCRIPTION,
+      primaryCategory: APP_PRIMARY_CATEGORY,
+      tags: APP_TAGS,
     },
   };
 }
