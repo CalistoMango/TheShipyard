@@ -6,9 +6,11 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSwitchCh
 import { VAULT_ADDRESS, vaultAbi, CHAIN_ID } from "~/lib/contracts";
 import { BUILDER_FEE_PERCENT, SUBMITTER_FEE_PERCENT } from "~/lib/constants";
 import { authFetch, authPost } from "~/lib/api";
+import type { Idea } from "~/lib/types";
 
 interface ProfileTabProps {
   onOpenAdmin?: () => void;
+  onSelectIdea?: (idea: Idea) => void;
 }
 
 interface UserProfile {
@@ -26,11 +28,13 @@ interface UserStats {
   total_funded: number;
   total_earnings: number;
   approved_builds: number;
+  total_builds: number;
   current_streak: number;
 }
 
 interface RecentBuild {
   id: string;
+  idea_id: number;
   idea_title: string;
   idea_pool: number;
   status: string;
@@ -72,7 +76,7 @@ function formatTimeAgo(dateStr: string): string {
   return `${months} months ago`;
 }
 
-export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
+export function ProfileTab({ onOpenAdmin, onSelectIdea }: ProfileTabProps) {
   const { context } = useMiniApp();
   const { address, chainId: walletChainId } = useAccount();
   const { switchChain } = useSwitchChain();
@@ -230,6 +234,20 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
     }
   };
 
+  // Handle clicking on a build to view the idea
+  const handleBuildClick = async (ideaId: number) => {
+    if (!onSelectIdea) return;
+    try {
+      const res = await fetch(`/api/ideas/${ideaId}`);
+      const data = await res.json();
+      if (data.data?.idea) {
+        onSelectIdea(data.data.idea);
+      }
+    } catch (error) {
+      console.error("Failed to fetch idea:", error);
+    }
+  };
+
   // Not logged in via Farcaster
   if (!context?.user) {
     return (
@@ -263,15 +281,16 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
     total_funded: userData?.stats?.total_funded ?? 0,
     total_earnings: userData?.stats?.total_earnings ?? 0,
     approved_builds: userData?.stats?.approved_builds ?? 0,
+    total_builds: userData?.stats?.total_builds ?? 0,
     current_streak: userData?.stats?.current_streak ?? 0,
   };
 
   const recentBuilds = userData?.recent_builds || [];
   const joinDate = userData?.user?.created_at;
 
-  // Calculate success rate
-  const successRate = stats.approved_builds > 0
-    ? Math.round((stats.approved_builds / (stats.approved_builds + 1)) * 100) // Placeholder calc
+  // Calculate success rate (approved builds / total builds)
+  const successRate = stats.total_builds > 0
+    ? Math.round((stats.approved_builds / stats.total_builds) * 100)
     : 0;
 
   return (
@@ -421,7 +440,11 @@ export function ProfileTab({ onOpenAdmin }: ProfileTabProps) {
         ) : (
           <div className="space-y-3">
             {recentBuilds.map((b) => (
-              <div key={b.id} className="flex items-center justify-between py-2 border-b border-gray-700 last:border-0">
+              <div
+                key={b.id}
+                className="flex items-center justify-between py-2 border-b border-gray-700 last:border-0 cursor-pointer hover:bg-gray-700/30 -mx-2 px-2 rounded transition-colors"
+                onClick={() => handleBuildClick(b.idea_id)}
+              >
                 <div>
                   <div className="text-white font-medium">{b.idea_title}</div>
                   <div className="text-gray-500 text-xs">{formatTimeAgo(b.created_at)}</div>

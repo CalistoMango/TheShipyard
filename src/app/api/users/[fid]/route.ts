@@ -140,6 +140,7 @@ export async function GET(
       stats: {
         ideas_submitted: ideas?.length || 0,
         approved_builds: approvedBuilds,
+        total_builds: builds?.length || 0,
         current_streak: user.streak,
         // Financial stats only visible to profile owner
         ...(isOwnProfile && {

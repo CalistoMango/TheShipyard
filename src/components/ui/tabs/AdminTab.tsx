@@ -72,6 +72,11 @@ export function AdminTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  // Broadcast notification state
+  const [broadcastTitle, setBroadcastTitle] = useState("");
+  const [broadcastBody, setBroadcastBody] = useState("");
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState<{ sent: number } | null>(null);
   // Force re-render every minute to update voting status display
   const [, setTick] = useState(0);
 
@@ -205,6 +210,32 @@ export function AdminTab() {
     }
   };
 
+  const handleBroadcast = async () => {
+    if (!userFid || !broadcastTitle.trim() || !broadcastBody.trim()) return;
+    setBroadcastLoading(true);
+    setBroadcastResult(null);
+    try {
+      const res = await authPost("/api/admin/broadcast", {
+        title: broadcastTitle.trim(),
+        body: broadcastBody.trim(),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setBroadcastResult({ sent: result.sent });
+        setBroadcastTitle("");
+        setBroadcastBody("");
+      } else {
+        const err = await res.json();
+        alert(err.error || "Failed to send broadcast");
+      }
+    } catch (err) {
+      console.error("Broadcast error:", err);
+      alert("Failed to send broadcast");
+    } finally {
+      setBroadcastLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -246,6 +277,47 @@ export function AdminTab() {
         <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 text-center">
           <div className="text-2xl font-bold text-yellow-400">{data.stats.ideas_in_racing}</div>
           <div className="text-xs text-gray-500">Racing</div>
+        </div>
+      </div>
+
+      {/* Broadcast Notification */}
+      <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+        <h3 className="font-semibold text-white mb-3">Broadcast Notification</h3>
+        <div className="space-y-3">
+          <div>
+            <input
+              type="text"
+              placeholder="Notification title"
+              value={broadcastTitle}
+              onChange={(e) => setBroadcastTitle(e.target.value.slice(0, 32))}
+              maxLength={32}
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 text-sm"
+            />
+            <div className="text-xs text-gray-500 text-right mt-1">{broadcastTitle.length}/32</div>
+          </div>
+          <div>
+            <textarea
+              placeholder="Message body"
+              value={broadcastBody}
+              onChange={(e) => setBroadcastBody(e.target.value.slice(0, 128))}
+              maxLength={128}
+              rows={3}
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 text-sm resize-none"
+            />
+            <div className="text-xs text-gray-500 text-right mt-1">{broadcastBody.length}/128</div>
+          </div>
+          <button
+            onClick={handleBroadcast}
+            disabled={broadcastLoading || !broadcastTitle.trim() || !broadcastBody.trim()}
+            className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white py-2 rounded-lg text-sm font-medium"
+          >
+            {broadcastLoading ? "Sending..." : "Send to All Users"}
+          </button>
+          {broadcastResult && (
+            <div className="text-sm text-center text-gray-400">
+              Notification sent to {broadcastResult.sent} user{broadcastResult.sent !== 1 ? "s" : ""}
+            </div>
+          )}
         </div>
       </div>
 

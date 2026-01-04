@@ -93,7 +93,7 @@ export default function App() {
             {currentTab === Tab.Browse && <BrowseTab onSelectIdea={setSelectedIdea} />}
             {currentTab === Tab.Leaderboard && <LeaderboardTab />}
             {currentTab === Tab.Dashboard && <DashboardTab onSelectIdea={setSelectedIdea} />}
-            {currentTab === Tab.Profile && <ProfileTab onOpenAdmin={() => handleTabChange(Tab.Admin)} />}
+            {currentTab === Tab.Profile && <ProfileTab onOpenAdmin={() => handleTabChange(Tab.Admin)} onSelectIdea={setSelectedIdea} />}
             {currentTab === Tab.Admin && <AdminTab />}
           </>
         )}
