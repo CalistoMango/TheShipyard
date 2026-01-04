@@ -122,6 +122,7 @@ export function DashboardTab({ onSelectIdea, onOpenAdmin }: DashboardTabProps) {
   const [claimSuccess, setClaimSuccess] = useState(false);
   const [refundSuccess, setRefundSuccess] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [buildsExpanded, setBuildsExpanded] = useState(false);
 
   const { writeContractAsync } = useWriteContract();
 
@@ -420,80 +421,73 @@ export function DashboardTab({ onSelectIdea, onOpenAdmin }: DashboardTabProps) {
           ) : (
             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full" />
           )}
-          <div>
+          <div className="flex-1">
             <h3 className="text-base font-bold text-white">{displayName}</h3>
             <p className="text-gray-400 text-sm">
               {joinDate ? `Joined ${formatTimeAgo(joinDate)}` : ""}
             </p>
           </div>
+          {/* Highest badge */}
+          {stats.approved_builds >= 5 ? (
+            <span className="px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full text-sm">
+              💎 Pro Builder
+            </span>
+          ) : stats.current_streak >= 3 ? (
+            <span className="px-3 py-1 bg-purple-500/20 text-purple-300 rounded-full text-sm">
+              ⚡ Building Streak
+            </span>
+          ) : stats.approved_builds >= 1 ? (
+            <span className="px-3 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-sm">
+              🏆 First Build
+            </span>
+          ) : null}
         </div>
 
         {/* Submitter Stats Row */}
-        <div className="grid grid-cols-4 gap-4 py-4 border-t border-gray-700">
+        <div className="grid grid-cols-4 gap-3 py-3 border-t border-gray-700">
           <div className="text-center">
-            <div className="text-2xl font-bold text-white">{stats.ideas_submitted}</div>
-            <div className="text-xs text-gray-500">Ideas</div>
+            <div className="text-lg font-bold text-white">{stats.ideas_submitted}</div>
+            <div className="text-xs text-gray-500">Ideas submitted</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-emerald-400">${stats.total_funded}</div>
-            <div className="text-xs text-gray-500">Funded</div>
+            <div className="text-lg font-bold text-emerald-400">${stats.total_funded}</div>
+            <div className="text-xs text-gray-500">Total funding</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-blue-400">{recentIdeas.filter(i => i.status === 'completed').length}</div>
-            <div className="text-xs text-gray-500">Built</div>
+            <div className="text-lg font-bold text-blue-400">{recentIdeas.filter(i => i.status === 'completed').length}</div>
+            <div className="text-xs text-gray-500">My ideas built</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-purple-400">{recentIdeas.reduce((sum, i) => sum + (i.upvotes || 0), 0)}</div>
-            <div className="text-xs text-gray-500">Upvotes</div>
+            <div className="text-lg font-bold text-purple-400">{recentIdeas.reduce((sum, i) => sum + (i.upvotes || 0), 0)}</div>
+            <div className="text-xs text-gray-500">My upvotes</div>
           </div>
         </div>
 
         {/* Builder Stats Row */}
-        <div className="grid grid-cols-4 gap-4 py-4 border-t border-gray-700">
+        <div className="grid grid-cols-4 gap-3 py-3 border-t border-gray-700">
           <div className="text-center">
-            <div className="text-2xl font-bold text-white">{stats.approved_builds}</div>
-            <div className="text-xs text-gray-500">Bounties</div>
+            <div className="text-lg font-bold text-white">{stats.approved_builds}</div>
+            <div className="text-xs text-gray-500">Builds</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-emerald-400">
+            <div className="text-lg font-bold text-emerald-400">
               ${stats.total_earnings.toLocaleString()}
             </div>
-            <div className="text-xs text-gray-500">Earned</div>
+            <div className="text-xs text-gray-500">Earn from build</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-white">
+            <div className="text-lg font-bold text-white">
               {stats.approved_builds > 0 ? `${successRate}%` : "-"}
             </div>
-            <div className="text-xs text-gray-500">Success</div>
+            <div className="text-xs text-gray-500">Build success</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-orange-400">
+            <div className="text-lg font-bold text-orange-400">
               {stats.current_streak > 0 ? `${stats.current_streak}🔥` : "0"}
             </div>
-            <div className="text-xs text-gray-500">Streak</div>
+            <div className="text-xs text-gray-500">Built streak</div>
           </div>
         </div>
-
-        {/* Badges - only show if user has achievements */}
-        {stats.approved_builds > 0 && (
-          <div className="flex gap-2 mt-4 flex-wrap">
-            {stats.approved_builds >= 1 && (
-              <span className="px-3 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-sm">
-                🏆 First Claim
-              </span>
-            )}
-            {stats.current_streak >= 3 && (
-              <span className="px-3 py-1 bg-purple-500/20 text-purple-300 rounded-full text-sm">
-                ⚡ On Fire
-              </span>
-            )}
-            {stats.approved_builds >= 5 && (
-              <span className="px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full text-sm">
-                💎 Pro Builder
-              </span>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Claim Rewards Section */}
@@ -568,35 +562,43 @@ export function DashboardTab({ onSelectIdea, onOpenAdmin }: DashboardTabProps) {
         </div>
       )}
 
-      {/* Recent Builds */}
-      <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-        <h3 className="font-semibold text-white mb-3">Recent Builds</h3>
-        {recentBuilds.length === 0 ? (
-          <p className="text-gray-500 text-sm">No builds yet. Submit your first build to claim a bounty!</p>
-        ) : (
-          <div className="space-y-3">
-            {recentBuilds.map((b) => (
-              <div
-                key={b.id}
-                className="flex items-center justify-between py-2 border-b border-gray-700 last:border-0 cursor-pointer hover:bg-gray-700/30 -mx-2 px-2 rounded transition-colors"
-                onClick={() => handleIdeaClick(b.idea_id)}
-              >
-                <div>
-                  <div className="text-white font-medium">{b.idea_title}</div>
-                  <div className="text-gray-500 text-xs">{formatTimeAgo(b.created_at)}</div>
+      {/* Recent Builds - collapsible unless there's a claim available */}
+      {recentBuilds.length > 0 && (
+        <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+          <button
+            onClick={() => !rewardsData?.totalRewards && setBuildsExpanded(!buildsExpanded)}
+            className="w-full flex items-center justify-between"
+          >
+            <h3 className="font-semibold text-white">Recent Builds</h3>
+            {!rewardsData?.totalRewards && (
+              <span className="text-gray-400 text-sm">{buildsExpanded ? "▲" : "▼"}</span>
+            )}
+          </button>
+          {(buildsExpanded || (rewardsData?.totalRewards ?? 0) > 0) && (
+            <div className="space-y-3 mt-3">
+              {recentBuilds.map((b) => (
+                <div
+                  key={b.id}
+                  className="flex items-center justify-between py-2 border-b border-gray-700 last:border-0 cursor-pointer hover:bg-gray-700/30 -mx-2 px-2 rounded transition-colors"
+                  onClick={() => handleIdeaClick(b.idea_id)}
+                >
+                  <div>
+                    <div className="text-white font-medium">{b.idea_title}</div>
+                    <div className="text-gray-500 text-xs">{formatTimeAgo(b.created_at)}</div>
+                  </div>
+                  <div className="text-right">
+                    {b.status === "approved" ? (
+                      <div className="text-emerald-400 font-medium">${(b.idea_pool * BUILDER_FEE_PERCENT / 100).toFixed(2)}</div>
+                    ) : (
+                      <span className="text-xs text-yellow-400">{b.status}</span>
+                    )}
+                  </div>
                 </div>
-                <div className="text-right">
-                  {b.status === "approved" ? (
-                    <div className="text-emerald-400 font-medium">${(b.idea_pool * BUILDER_FEE_PERCENT / 100).toFixed(2)}</div>
-                  ) : (
-                    <span className="text-xs text-yellow-400">{b.status}</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-4 border-b border-gray-700">
