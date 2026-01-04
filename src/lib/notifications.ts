@@ -130,8 +130,8 @@ function buildNotificationMessage(payload: NotificationPayload): {
     case "daily_trending":
       return {
         title: "🔥 Today's Hot Ideas",
-        body: `Check out what's trending on The Shipyard! ${data.count} ideas need builders.`,
-        castMessage: `🔥 ${data.count} ideas are trending on The Shipyard today! Top pool: $${data.topPool}. Come build and earn!`,
+        body: `Top bounty: $${data.topPool}. Come build and earn on The Shipyard!`,
+        castMessage: `🔥 Top bounty on The Shipyard: $${data.topPool}. Come build and earn!`,
       };
 
     default:
@@ -197,19 +197,18 @@ export async function sendDailyTrendingNotifications(): Promise<{
 }> {
   const supabase = createServerClient();
 
-  // Get trending stats
+  // Get top pool amount
   const { data: ideas } = await supabase
     .from("ideas")
     .select("pool")
     .eq("status", "open")
     .order("pool", { ascending: false })
-    .limit(10);
+    .limit(1);
 
-  const openIdeasCount = ideas?.length || 0;
   const topPool = ideas?.[0]?.pool ? Number(ideas[0].pool) : 0;
 
-  if (openIdeasCount === 0) {
-    console.log("No open ideas, skipping daily notification");
+  if (topPool === 0) {
+    console.log("No open ideas with pool, skipping daily notification");
     return { sent: 0, failed: 0 };
   }
 
@@ -222,7 +221,6 @@ export async function sendDailyTrendingNotifications(): Promise<{
       type: "daily_trending",
       recipientFid: fid,
       data: {
-        count: openIdeasCount,
         topPool,
       },
     });

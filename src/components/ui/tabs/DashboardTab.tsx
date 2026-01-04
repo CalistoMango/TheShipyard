@@ -211,7 +211,7 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
   if (!context?.user) {
     return (
       <div className="space-y-4">
-        <h2 className="text-xl font-bold text-white">My Activity</h2>
+        <h2 className="text-xl font-bold text-white">My Dashboard</h2>
         <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 text-center">
           <p className="text-gray-400 mb-4">Open this app in Farcaster to view your activity.</p>
         </div>
@@ -222,7 +222,7 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
   if (loading) {
     return (
       <div className="space-y-4">
-        <h2 className="text-xl font-bold text-white">My Activity</h2>
+        <h2 className="text-xl font-bold text-white">My Dashboard</h2>
         <div className="flex items-center justify-center py-12">
           <div className="text-gray-400">Loading...</div>
         </div>
@@ -246,7 +246,7 @@ export function DashboardTab({ onSelectIdea }: DashboardTabProps) {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold text-white">My Activity</h2>
+      <h2 className="text-xl font-bold text-white">My Dashboard</h2>
 
       {/* Stats Overview */}
       <div className="grid grid-cols-3 gap-3">

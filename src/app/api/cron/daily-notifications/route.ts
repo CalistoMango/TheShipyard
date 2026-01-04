@@ -3,7 +3,7 @@ import { sendDailyTrendingNotifications } from "~/lib/notifications";
 import { refreshAllProfiles } from "~/lib/user";
 
 // This endpoint should be called by Vercel Cron or external scheduler
-// Configure in vercel.json: {"crons": [{"path": "/api/cron/daily-notifications", "schedule": "0 9 * * *"}]}
+// Configure in vercel.json: {"crons": [{"path": "/api/cron/daily-notifications", "schedule": "0 15 * * *"}]}
 
 // SECURITY WARNING: Log if CRON_SECRET is not set
 if (!process.env.CRON_SECRET) {

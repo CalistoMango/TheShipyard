@@ -188,9 +188,8 @@ export const RETURN_URL: string | undefined = undefined;
 /**
  * Cast hash for the launch announcement post.
  * Used to direct users to like/recast for engagement modal.
- * TODO: Update with actual launch cast hash once posted.
  */
-export const LAUNCH_CAST_HASH: string = "";
+export const LAUNCH_CAST_HASH: string = "0xa16d6dc1c63a0771bd13583c2fe240a624566a09";
 
 // PLEASE DO NOT UPDATE THIS
 export const SIGNED_KEY_REQUEST_VALIDATOR_EIP_712_DOMAIN = {

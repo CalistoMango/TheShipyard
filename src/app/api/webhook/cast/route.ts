@@ -13,6 +13,41 @@ const INGEST_SECRET = process.env.INGEST_SECRET;
 // Detect @theshipyard mentions (case insensitive)
 const MENTION_PATTERN = /@theshipyard\b/i;
 
+// Share casts from the app start with this pattern (see IdeaDetail.tsx getShareText)
+const SHARE_TEXT_PATTERN = /^Check out "[^"]+" by @?\w+ on @theshipyard!/i;
+
+/**
+ * Detects if a cast is sharing an existing Shipyard idea.
+ * Must match BOTH: the share text pattern AND embed a Shipyard idea URL.
+ * This prevents false positives where someone submits a new idea that references an existing one.
+ */
+function isShareCast(text: string, embeds: Array<{ url?: string }>): boolean {
+  // First check if text matches the share pattern from the app
+  if (!SHARE_TEXT_PATTERN.test(text)) {
+    return false;
+  }
+
+  // Use origin comparison to prevent spoofing (e.g., the-shipyard.vercel.app.evil.com)
+  let appOrigin: string;
+  try {
+    appOrigin = new URL(APP_URL).origin;
+  } catch {
+    return false;
+  }
+
+  return embeds.some((embed) => {
+    if (!embed.url) return false;
+    try {
+      const url = new URL(embed.url);
+      const ideaId = url.searchParams.get("idea");
+      // Compare origins to ensure exact domain match
+      return ideaId && url.origin === appOrigin;
+    } catch {
+      return false;
+    }
+  });
+}
+
 interface NeynarCastWebhook {
   created_at: number;
   type: "cast.created";
@@ -58,14 +93,25 @@ function verifyNeynarSignature(
     return false;
   }
 
-  const hmac = crypto.createHmac("sha512", NEYNAR_WEBHOOK_SECRET);
-  hmac.update(payload);
-  const computedSignature = hmac.digest("hex");
+  try {
+    const hmac = crypto.createHmac("sha512", NEYNAR_WEBHOOK_SECRET);
+    hmac.update(payload);
+    const computedSignature = hmac.digest("hex");
 
-  return crypto.timingSafeEqual(
-    Buffer.from(computedSignature),
-    Buffer.from(signature)
-  );
+    // Validate signature format and length before comparison
+    // timingSafeEqual throws if buffers have different lengths
+    const computedBuffer = Buffer.from(computedSignature, "utf8");
+    const signatureBuffer = Buffer.from(signature, "utf8");
+
+    if (computedBuffer.length !== signatureBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(computedBuffer, signatureBuffer);
+  } catch {
+    // Handle malformed signatures gracefully
+    return false;
+  }
 }
 
 async function replyToCast(parentHash: string, text: string): Promise<boolean> {
@@ -161,6 +207,19 @@ export async function POST(request: NextRequest) {
 
   // Case 1: Reply mentioning @theshipyard (outside /someone-build) - import the parent cast as an idea
   if (isReplyMention) {
+    // Check if this is a share cast (sharing an existing idea)
+    if (isShareCast(cast.text, cast.embeds)) {
+      console.log("[WEBHOOK] Detected share cast in reply mention, sending thank you");
+      await replyToCast(
+        cast.hash,
+        "Thanks for sharing this idea! 🚢 Your support helps great ideas get built."
+      );
+      return NextResponse.json({
+        status: "skipped",
+        reason: "Share cast - existing idea being shared",
+      });
+    }
+
     console.log("[WEBHOOK] Detected @theshipyard mention in reply");
 
     // Fetch the parent cast that's being tagged as an idea
@@ -249,6 +308,19 @@ export async function POST(request: NextRequest) {
 
   // Case 2: Top-level cast mentioning @theshipyard - treat the cast itself as an idea
   if (isDirectMention) {
+    // Check if this is a share cast (sharing an existing idea)
+    if (isShareCast(cast.text, cast.embeds)) {
+      console.log("[WEBHOOK] Detected share cast in direct mention, sending thank you");
+      await replyToCast(
+        cast.hash,
+        "Thanks for sharing this idea! 🚢 Your support helps great ideas get built."
+      );
+      return NextResponse.json({
+        status: "skipped",
+        reason: "Share cast - existing idea being shared",
+      });
+    }
+
     console.log("[WEBHOOK] Detected @theshipyard mention in top-level cast");
 
     // Forward this cast to ingest endpoint (the cast itself is the idea)
@@ -270,14 +342,8 @@ export async function POST(request: NextRequest) {
 
       const result = await ingestResponse.json();
 
-      // Reply to confirm (ingest already replies for created/rejected, but not for duplicates/skipped from mentions)
-      if (result.status === "duplicate") {
-        const ideaUrl = `${APP_URL}/?idea=${result.idea_id}`;
-        await replyToCast(
-          cast.hash,
-          `This idea is already on The Shipyard! Check it out and upvote or fund it: ${ideaUrl}`
-        );
-      } else if (result.status === "skipped") {
+      // Reply for skipped status only - ingest already replies for created/rejected/duplicate
+      if (result.status === "skipped") {
         const ideaUrl = `${APP_URL}/?idea=${result.idea_id}`;
         await replyToCast(
           cast.hash,
@@ -312,6 +378,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       status: "skipped",
       reason: "Skipping reply cast in channel",
+    });
+  }
+
+  // Check if this is a share cast (sharing an existing idea) in the channel
+  if (isShareCast(cast.text, cast.embeds)) {
+    console.log("[WEBHOOK] Detected share cast in channel, sending thank you");
+    await replyToCast(
+      cast.hash,
+      "Thanks for sharing this idea! 🚢 Your support helps great ideas get built."
+    );
+    return NextResponse.json({
+      status: "skipped",
+      reason: "Share cast - existing idea being shared",
     });
   }
 

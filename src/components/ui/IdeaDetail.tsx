@@ -58,6 +58,30 @@ const getStatusBadge = (status: string) => {
   return null;
 };
 
+const getShareText = (idea: Idea) => {
+  const submitterMention = idea.submitter_username ? `@${idea.submitter_username}` : idea.submitter;
+  const intro = `Check out "${idea.title}" by ${submitterMention} on @theshipyard!\n\n`;
+
+  if (idea.status === "completed") {
+    return intro + "This idea has been built! Check out the winning build.";
+  }
+
+  if (idea.status === "already_exists") {
+    return intro + "This idea already exists! Check out the existing solution.";
+  }
+
+  if (idea.hasVotingBuilds) {
+    return intro + "A build is under vote! Vote now to decide the winner.";
+  }
+
+  if (idea.status === "racing") {
+    return intro + `This idea is racing with a $${idea.pool} bounty pool. Build it now!`;
+  }
+
+  const poolText = idea.pool > 0 ? ` to claim the $${idea.pool} bounty pool` : " to earn the bounty";
+  return intro + `Fund this idea or build it${poolText}!`;
+};
+
 function RacingSection({ pool }: { pool: number }) {
   return (
     <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mt-4">
@@ -760,7 +784,7 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
         onClick={onBack}
         className="text-gray-400 hover:text-white text-sm flex items-center gap-1"
       >
-        ← Back to ideas
+        ← Back to previous page
       </button>
 
       {/* Error message - only show outside modals */}
@@ -798,11 +822,8 @@ export function IdeaDetail({ idea: initialIdea, onBack }: IdeaDetailProps) {
           <button
             onClick={() => {
               const shareUrl = `${APP_URL}/?idea=${idea.id}`;
-              const submitterMention = idea.submitter_username ? `@${idea.submitter_username}` : idea.submitter;
-              const poolText = idea.pool > 0 ? ` to claim the $${idea.pool} bounty pool` : '';
-              const shareText = `Check out "${idea.title}" by ${submitterMention} on @theshipyard!\n\nFund this idea or build it${poolText}.`;
               sdk.actions.composeCast({
-                text: shareText,
+                text: getShareText(idea),
                 embeds: [shareUrl],
               });
             }}

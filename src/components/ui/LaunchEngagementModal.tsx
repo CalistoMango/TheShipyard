@@ -2,7 +2,7 @@
 
 import { useMiniApp } from "@neynar/react";
 import sdk from "@farcaster/miniapp-sdk";
-import { APP_URL, LAUNCH_CAST_HASH } from "~/lib/constants";
+import { APP_URL, LAUNCH_CAST_HASH, PLATFORM_FID } from "~/lib/constants";
 
 interface LaunchEngagementModalProps {
   onClose: () => void;
@@ -17,7 +17,7 @@ export function LaunchEngagementModal({ onClose }: LaunchEngagementModalProps) {
         await sdk.actions.viewCast({ hash: LAUNCH_CAST_HASH });
       } else {
         // Fallback to @theshipyard profile if no cast hash set
-        await sdk.actions.viewProfile({ fid: 487460 });
+        await sdk.actions.viewProfile({ fid: PLATFORM_FID });
       }
     } catch {
       // Fallback to URL if SDK action fails
@@ -39,7 +39,7 @@ export function LaunchEngagementModal({ onClose }: LaunchEngagementModalProps) {
 
   const handleFollowAccount = async () => {
     try {
-      await sdk.actions.viewProfile({ fid: 487460 });
+      await sdk.actions.viewProfile({ fid: PLATFORM_FID });
     } catch {
       sdk.actions.openUrl("https://farcaster.xyz/theshipyard");
     }

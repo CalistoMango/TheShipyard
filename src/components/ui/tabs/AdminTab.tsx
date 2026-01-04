@@ -77,8 +77,14 @@ export function AdminTab() {
   const [broadcastBody, setBroadcastBody] = useState("");
   const [broadcastLoading, setBroadcastLoading] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<{ sent: number } | null>(null);
+  // Daily trending notification state
+  const [dailyTrendingLoading, setDailyTrendingLoading] = useState(false);
+  const [dailyTrendingResult, setDailyTrendingResult] = useState<{ sent: number } | null>(null);
   // Force re-render every minute to update voting status display
   const [, setTick] = useState(0);
+  // Sub-tab navigation
+  type AdminSubTab = "reviews" | "notifications";
+  const [activeSubTab, setActiveSubTab] = useState<AdminSubTab>("reviews");
 
   const userFid = context?.user?.fid;
 
@@ -236,6 +242,27 @@ export function AdminTab() {
     }
   };
 
+  const handleDailyTrending = async () => {
+    if (!userFid) return;
+    setDailyTrendingLoading(true);
+    setDailyTrendingResult(null);
+    try {
+      const res = await authPost("/api/admin/trigger-daily-notification", {});
+      if (res.ok) {
+        const result = await res.json();
+        setDailyTrendingResult({ sent: result.sent });
+      } else {
+        const err = await res.json();
+        alert(err.error || "Failed to send daily trending notification");
+      }
+    } catch (err) {
+      console.error("Daily trending error:", err);
+      alert("Failed to send daily trending notification");
+    } finally {
+      setDailyTrendingLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -280,48 +307,103 @@ export function AdminTab() {
         </div>
       </div>
 
-      {/* Broadcast Notification */}
-      <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-        <h3 className="font-semibold text-white mb-3">Broadcast Notification</h3>
-        <div className="space-y-3">
-          <div>
-            <input
-              type="text"
-              placeholder="Notification title"
-              value={broadcastTitle}
-              onChange={(e) => setBroadcastTitle(e.target.value.slice(0, 32))}
-              maxLength={32}
-              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 text-sm"
-            />
-            <div className="text-xs text-gray-500 text-right mt-1">{broadcastTitle.length}/32</div>
-          </div>
-          <div>
-            <textarea
-              placeholder="Message body"
-              value={broadcastBody}
-              onChange={(e) => setBroadcastBody(e.target.value.slice(0, 128))}
-              maxLength={128}
-              rows={3}
-              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 text-sm resize-none"
-            />
-            <div className="text-xs text-gray-500 text-right mt-1">{broadcastBody.length}/128</div>
-          </div>
+      {/* Sub-tab Navigation */}
+      <div className="flex gap-4 border-b border-gray-700">
+        <button
+          onClick={() => setActiveSubTab("reviews")}
+          className={`pb-2 flex items-center gap-2 ${
+            activeSubTab === "reviews"
+              ? "border-b-2 border-white text-white font-medium"
+              : "text-gray-400"
+          }`}
+        >
+          Reviews
+          {(data.pending_builds.length + data.voting_builds.length + data.pending_reports.length) > 0 && (
+            <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded-full">
+              {data.pending_builds.length + data.voting_builds.length + data.pending_reports.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveSubTab("notifications")}
+          className={`pb-2 ${
+            activeSubTab === "notifications"
+              ? "border-b-2 border-white text-white font-medium"
+              : "text-gray-400"
+          }`}
+        >
+          Notifications
+        </button>
+      </div>
+
+      {/* Notifications Tab */}
+      {activeSubTab === "notifications" && (
+        <>
+        {/* Daily Trending */}
+        <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+          <h3 className="font-semibold text-white mb-2">Daily Trending</h3>
+          <p className="text-gray-400 text-sm mb-3">Send the daily &quot;Top bounty&quot; notification to all users.</p>
           <button
-            onClick={handleBroadcast}
-            disabled={broadcastLoading || !broadcastTitle.trim() || !broadcastBody.trim()}
-            className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white py-2 rounded-lg text-sm font-medium"
+            onClick={handleDailyTrending}
+            disabled={dailyTrendingLoading}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/50 disabled:cursor-not-allowed text-white py-2 rounded-lg text-sm font-medium"
           >
-            {broadcastLoading ? "Sending..." : "Send to All Users"}
+            {dailyTrendingLoading ? "Sending..." : "Send Daily Trending"}
           </button>
-          {broadcastResult && (
-            <div className="text-sm text-center text-gray-400">
-              Notification sent to {broadcastResult.sent} user{broadcastResult.sent !== 1 ? "s" : ""}
+          {dailyTrendingResult && (
+            <div className="text-sm text-center text-gray-400 mt-2">
+              Notification sent to {dailyTrendingResult.sent} user{dailyTrendingResult.sent !== 1 ? "s" : ""}
             </div>
           )}
         </div>
-      </div>
 
-      {/* Pending Builds */}
+        {/* Broadcast */}
+        <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+          <h3 className="font-semibold text-white mb-3">Broadcast Notification</h3>
+          <div className="space-y-3">
+            <div>
+              <input
+                type="text"
+                placeholder="Notification title"
+                value={broadcastTitle}
+                onChange={(e) => setBroadcastTitle(e.target.value.slice(0, 32))}
+                maxLength={32}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 text-sm"
+              />
+              <div className="text-xs text-gray-500 text-right mt-1">{broadcastTitle.length}/32</div>
+            </div>
+            <div>
+              <textarea
+                placeholder="Message body"
+                value={broadcastBody}
+                onChange={(e) => setBroadcastBody(e.target.value.slice(0, 128))}
+                maxLength={128}
+                rows={3}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 text-sm resize-none"
+              />
+              <div className="text-xs text-gray-500 text-right mt-1">{broadcastBody.length}/128</div>
+            </div>
+            <button
+              onClick={handleBroadcast}
+              disabled={broadcastLoading || !broadcastTitle.trim() || !broadcastBody.trim()}
+              className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white py-2 rounded-lg text-sm font-medium"
+            >
+              {broadcastLoading ? "Sending..." : "Send to All Users"}
+            </button>
+            {broadcastResult && (
+              <div className="text-sm text-center text-gray-400">
+                Notification sent to {broadcastResult.sent} user{broadcastResult.sent !== 1 ? "s" : ""}
+              </div>
+            )}
+          </div>
+        </div>
+        </>
+      )}
+
+      {/* Reviews Tab */}
+      {activeSubTab === "reviews" && (
+        <>
+        {/* Pending Builds */}
       <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
         <h3 className="font-semibold text-white mb-3 flex items-center gap-2">
           Pending Builds
@@ -495,6 +577,8 @@ export function AdminTab() {
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

@@ -28,7 +28,7 @@ export const Footer: React.FC<FooterProps> = ({ activeTab, setActiveTab }) => (
         className={`flex flex-col items-center gap-1 ${activeTab === Tab.Dashboard ? "text-white" : "text-gray-500"}`}
       >
         <span className="text-xl">📊</span>
-        <span className="text-xs">Activity</span>
+        <span className="text-xs">Dashboard</span>
       </button>
       <button
         onClick={() => setActiveTab(Tab.Profile)}
