@@ -27,9 +27,25 @@ interface PendingReport {
   created_at: string;
 }
 
+interface VotingBuild {
+  id: string;
+  idea_id: number;
+  idea_title: string;
+  builder_fid: number;
+  builder_name: string;
+  url: string;
+  description: string | null;
+  created_at: string;
+  vote_ends_at: string | null;
+  votes_approve: number;
+  votes_reject: number;
+  voting_ended: boolean;
+}
+
 interface AdminData {
   pending_builds: PendingBuild[];
   pending_reports: PendingReport[];
+  voting_builds: VotingBuild[];
   stats: {
     total_ideas: number;
     total_pool: number;
@@ -56,6 +72,8 @@ export function AdminTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  // Force re-render every minute to update voting status display
+  const [, setTick] = useState(0);
 
   const userFid = context?.user?.fid;
 
@@ -86,6 +104,14 @@ export function AdminTab() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Re-render every 60 seconds to update voting countdown/status
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleApproveBuild = async (buildId: string) => {
     if (!userFid) return;
@@ -154,6 +180,26 @@ export function AdminTab() {
       }
     } catch (err) {
       console.error("Dismiss error:", err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleResolveBuild = async (buildId: string) => {
+    if (!userFid) return;
+    setActionLoading(buildId);
+    try {
+      const res = await authPost(`/api/builds/${buildId}/resolve`, {});
+      if (res.ok) {
+        const result = await res.json();
+        alert(`Build ${result.status}! Votes: ${result.outcome.votes_approve} approve, ${result.outcome.votes_reject} reject`);
+        fetchData();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Failed to resolve build");
+      }
+    } catch (err) {
+      console.error("Resolve error:", err);
     } finally {
       setActionLoading(null);
     }
@@ -252,6 +298,75 @@ export function AdminTab() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Voting Builds */}
+      <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+        <h3 className="font-semibold text-white mb-3 flex items-center gap-2">
+          Voting Builds
+          {data.voting_builds.length > 0 && (
+            <span className="bg-purple-500 text-white text-xs px-2 py-0.5 rounded-full">
+              {data.voting_builds.length}
+            </span>
+          )}
+        </h3>
+        {data.voting_builds.length === 0 ? (
+          <p className="text-gray-500 text-sm">No builds currently in voting.</p>
+        ) : (
+          <div className="space-y-3">
+            {data.voting_builds.map((build) => {
+              const now = Date.now();
+              const endTime = build.vote_ends_at ? new Date(build.vote_ends_at).getTime() : null;
+              // Re-evaluate voting_ended on client side to handle stale data
+              const isVotingEnded = endTime ? now > endTime : false;
+              const timeLeft = endTime ? Math.max(0, endTime - now) : 0;
+              const hoursLeft = Math.ceil(timeLeft / (1000 * 60 * 60));
+              return (
+                <div key={build.id} className="border border-gray-600 rounded-lg p-3 space-y-2">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="text-white font-medium">{build.idea_title}</div>
+                      <div className="text-gray-400 text-xs">by {build.builder_name}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-gray-400">
+                        {isVotingEnded ? (
+                          <span className="text-yellow-400">Voting ended</span>
+                        ) : endTime ? (
+                          <span>{hoursLeft}h left</span>
+                        ) : (
+                          <span className="text-red-400">No deadline</span>
+                        )}
+                      </div>
+                      <div className="text-xs mt-1">
+                        <span className="text-green-400">{build.votes_approve}</span>
+                        {" / "}
+                        <span className="text-red-400">{build.votes_reject}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className="text-blue-400 text-sm truncate cursor-pointer hover:underline"
+                    onClick={() => sdk.actions.openUrl(build.url)}
+                  >
+                    {build.url}
+                  </div>
+                  {isVotingEnded && (
+                    <div className="pt-2">
+                      <button
+                        onClick={() => handleResolveBuild(build.id)}
+                        disabled={actionLoading === build.id}
+                        className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 text-white py-2 rounded-lg text-sm font-medium"
+                      >
+                        {actionLoading === build.id ? "Resolving..." : "Resolve Vote"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

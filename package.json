@@ -57,6 +57,7 @@
     "@neynar/react": "^1.2.15",
     "@pigment-css/react": "^0.0.30",
     "@radix-ui/react-label": "^2.1.1",
+    "@sentry/nextjs": "^10.32.1",
     "@solana/wallet-adapter-react": "^0.15.38",
     "@supabase/supabase-js": "^2.89.0",
     "@tanstack/react-query": "^5.61.0",

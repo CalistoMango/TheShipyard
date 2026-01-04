@@ -48,6 +48,25 @@ export async function GET(request: NextRequest) {
       .eq("status", "pending")
       .order("created_at", { ascending: false });
 
+    // Get builds in voting status
+    const { data: votingBuilds } = await supabase
+      .from("builds")
+      .select(`
+        id,
+        idea_id,
+        builder_fid,
+        url,
+        description,
+        created_at,
+        vote_ends_at,
+        votes_approve,
+        votes_reject,
+        ideas!idea_id(title),
+        users!builder_fid(username, display_name)
+      `)
+      .eq("status", "voting")
+      .order("vote_ends_at", { ascending: true });
+
     // Get stats
     const { count: totalIdeas } = await supabase
       .from("ideas")
@@ -97,10 +116,33 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    const voting = (votingBuilds || []).map((b) => {
+      const idea = b.ideas as unknown as { title: string } | null;
+      const user = b.users as unknown as { username: string | null; display_name: string | null } | null;
+      const now = Date.now();
+      // Only consider voting ended if vote_ends_at is set AND in the past
+      const votingEnded = b.vote_ends_at ? now > new Date(b.vote_ends_at).getTime() : false;
+      return {
+        id: b.id,
+        idea_id: b.idea_id,
+        idea_title: idea?.title || "Unknown",
+        builder_fid: b.builder_fid,
+        builder_name: user?.display_name || user?.username || `fid:${b.builder_fid}`,
+        url: b.url,
+        description: b.description,
+        created_at: b.created_at,
+        vote_ends_at: b.vote_ends_at,
+        votes_approve: b.votes_approve || 0,
+        votes_reject: b.votes_reject || 0,
+        voting_ended: votingEnded,
+      };
+    });
+
     return NextResponse.json({
       data: {
         pending_builds: builds,
         pending_reports: reports,
+        voting_builds: voting,
         stats: {
           total_ideas: totalIdeas || 0,
           total_pool: totalPool,

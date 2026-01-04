@@ -65,16 +65,26 @@ export async function POST(
       );
     }
 
-    // Check if voting has ended
-    if (build.vote_ends_at) {
-      const endsAt = new Date(build.vote_ends_at).getTime();
-      if (Date.now() < endsAt) {
-        const hoursLeft = Math.ceil((endsAt - Date.now()) / (60 * 60 * 1000));
-        return NextResponse.json(
-          { error: `Voting still active. ${hoursLeft}h remaining.` },
-          { status: 400 }
-        );
-      }
+    // Check if voting has ended - vote_ends_at must be set and in the past
+    if (!build.vote_ends_at) {
+      return NextResponse.json(
+        { error: "Build has no voting deadline set. Cannot resolve." },
+        { status: 400 }
+      );
+    }
+    const endsAt = new Date(build.vote_ends_at).getTime();
+    if (Number.isNaN(endsAt)) {
+      return NextResponse.json(
+        { error: "Build has invalid voting deadline. Cannot resolve." },
+        { status: 400 }
+      );
+    }
+    if (Date.now() < endsAt) {
+      const hoursLeft = Math.ceil((endsAt - Date.now()) / (60 * 60 * 1000));
+      return NextResponse.json(
+        { error: `Voting still active. ${hoursLeft}h remaining.` },
+        { status: 400 }
+      );
     }
 
     // Supabase single-row joins return objects, not arrays

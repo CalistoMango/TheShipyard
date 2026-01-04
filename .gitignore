@@ -50,3 +50,6 @@ _TEMP/*
 *-funding.json
 before-*.json
 after-*.json
+
+# Sentry Config File
+.env.sentry-build-plugin
