@@ -47,6 +47,18 @@ export async function GET(
       .order("created_at", { ascending: false })
       .limit(10);
 
+    // Get idea IDs that have builds in voting status
+    const ideaIds = ideas?.map((i) => i.id) || [];
+    const { data: votingBuildsForIdeas } = ideaIds.length > 0
+      ? await supabase
+          .from("builds")
+          .select("idea_id")
+          .in("idea_id", ideaIds)
+          .eq("status", "voting")
+      : { data: [] };
+
+    const ideasWithVotingBuilds = new Set(votingBuildsForIdeas?.map((b) => b.idea_id) || []);
+
     // Get builds by user
     const { data: builds } = await supabase
       .from("builds")
@@ -156,6 +168,7 @@ export async function GET(
         status: i.status,
         pool: Number(i.pool),
         upvotes: i.upvote_count,
+        hasVotingBuilds: ideasWithVotingBuilds.has(i.id),
       })) || [],
       recent_builds: builds?.map((b) => {
         // Supabase returns single-row joins as objects, not arrays

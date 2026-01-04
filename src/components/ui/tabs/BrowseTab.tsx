@@ -316,7 +316,7 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                 >
                   {/* Voting banner */}
                   {idea.hasVotingBuilds && (
-                    <div className="bg-amber-500 px-4 py-1.5 flex items-center gap-2">
+                    <div className="bg-amber-500 px-4 py-1.5 flex items-center justify-center gap-2">
                       <span className="text-black text-sm font-medium">🗳️ Vote needed</span>
                     </div>
                   )}
@@ -327,7 +327,7 @@ export function BrowseTab({ onSelectIdea }: BrowseTabProps) {
                     </div>
                   )}
                   <div className="p-4">
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-white truncate">{idea.title}</h3>

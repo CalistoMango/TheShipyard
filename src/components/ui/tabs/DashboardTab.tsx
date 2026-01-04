@@ -29,6 +29,7 @@ interface RecentIdea {
   status: string;
   pool: number;
   upvotes?: number;
+  hasVotingBuilds?: boolean;
 }
 
 interface RecentBuild {
@@ -447,7 +448,7 @@ export function DashboardTab({ onSelectIdea, onOpenAdmin }: DashboardTabProps) {
         <div className="grid grid-cols-4 gap-3 py-3 border-t border-gray-700">
           <div className="text-center">
             <div className="text-lg font-bold text-white">{stats.ideas_submitted}</div>
-            <div className="text-xs text-gray-500">Ideas submitted</div>
+            <div className="text-xs text-gray-500">Ideas</div>
           </div>
           <div className="text-center">
             <div className="text-lg font-bold text-emerald-400">${stats.total_funded}</div>
@@ -455,7 +456,7 @@ export function DashboardTab({ onSelectIdea, onOpenAdmin }: DashboardTabProps) {
           </div>
           <div className="text-center">
             <div className="text-lg font-bold text-blue-400">{recentIdeas.filter(i => i.status === 'completed').length}</div>
-            <div className="text-xs text-gray-500">My ideas built</div>
+            <div className="text-xs text-gray-500">Ideas built</div>
           </div>
           <div className="text-center">
             <div className="text-lg font-bold text-purple-400">{recentIdeas.reduce((sum, i) => sum + (i.upvotes || 0), 0)}</div>
@@ -473,7 +474,7 @@ export function DashboardTab({ onSelectIdea, onOpenAdmin }: DashboardTabProps) {
             <div className="text-lg font-bold text-emerald-400">
               ${stats.total_earnings.toLocaleString()}
             </div>
-            <div className="text-xs text-gray-500">Earn from build</div>
+            <div className="text-xs text-gray-500">Earn building</div>
           </div>
           <div className="text-center">
             <div className="text-lg font-bold text-white">
@@ -643,7 +644,15 @@ export function DashboardTab({ onSelectIdea, onOpenAdmin }: DashboardTabProps) {
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <h4 className="font-medium text-white truncate">{idea.title}</h4>
-                    <p className="text-gray-500 text-sm">{idea.status}</p>
+                    <p className={`text-sm ${
+                      idea.hasVotingBuilds ? "text-amber-400" :
+                      idea.status === "racing" ? "text-orange-400" :
+                      idea.status === "completed" ? "text-green-400" :
+                      idea.status === "already_exists" ? "text-red-400" :
+                      "text-gray-500"
+                    }`}>
+                      {idea.hasVotingBuilds ? "🗳️ voting" : idea.status}
+                    </p>
                   </div>
                   <div className="text-right flex-shrink-0">
                     <div className="text-emerald-400 font-bold">${idea.pool}</div>
